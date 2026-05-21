@@ -1,6 +1,6 @@
 # Substitute BackEnd
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE) [![semantic-release](https://img.shields.io/badge/semantic--release-angular-e10079?logo=semantic-release)](https://github.com/semantic-release/semantic-release) [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](LICENSE) [![semantic-release](https://img.shields.io/badge/semantic--release-angular-e10079?logo=semantic-release)](https://github.com/semantic-release/semantic-release) [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 
 **Substitute BackEnd** is the ComfyUI backend companion for **SugarSubstitute**.
 
@@ -136,4 +136,4 @@ Cube Library diagnostics can be enabled with `SUBSTITUTE_BACKEND_DIAGNOSTICS` an
 
 ## License
 
-Substitute BackEnd is licensed under the GNU Affero General Public License v3.0. See [LICENSE](LICENSE) for the full license text.
+Substitute BackEnd is licensed under the GNU Affero General Public License v3.0 or later. See [LICENSE](LICENSE) for the full license text.

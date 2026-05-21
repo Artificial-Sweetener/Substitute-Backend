@@ -24,6 +24,7 @@ from types import ModuleType
 from typing import Any, cast
 
 _TOOLS_MODULE = Path(__file__).resolve().parents[1] / "tools" / "add_license_headers.py"
+_REPO_ROOT = _TOOLS_MODULE.parents[1]
 
 
 def _load_module(path: Path) -> ModuleType:
@@ -61,3 +62,28 @@ def test_header_uses_javascript_comment_prefix_for_release_scripts() -> None:
 
     assert header.startswith("//    Substitute BackEnd")
     assert "GNU Affero General Public License" in header
+
+
+def test_project_license_metadata_uses_agpl_v3_or_later() -> None:
+    """Keep published package metadata aligned with source file headers."""
+
+    metadata_paths = [
+        _REPO_ROOT / "pyproject.toml",
+        _REPO_ROOT / "package.json",
+        _REPO_ROOT / "package-lock.json",
+        _REPO_ROOT / "README.md",
+    ]
+
+    for path in metadata_paths:
+        text = path.read_text(encoding="utf-8")
+        assert "AGPL-3.0-only" not in text
+
+    assert 'license = "AGPL-3.0-or-later"' in (_REPO_ROOT / "pyproject.toml").read_text(
+        encoding="utf-8"
+    )
+    assert '"license": "AGPL-3.0-or-later"' in (_REPO_ROOT / "package.json").read_text(
+        encoding="utf-8"
+    )
+    assert "GNU Affero General Public License v3.0 or later" in (
+        _REPO_ROOT / "README.md"
+    ).read_text(encoding="utf-8")
