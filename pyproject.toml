@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "substitute-backend"
+description = "Backend liaison services for SugarSubstitute and ComfyUI."
+version = "1.0.0"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+classifiers = [
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "aiohttp",
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = [
+    "huggingface-hub",
+    "mypy",
+    "pytest",
+    "pytest-xdist",
+    "ruff",
+]
+
+[project.urls]
+Repository = "https://github.com/Artificial-Sweetener/Substitute-BackEnd"
+"Bug Tracker" = "https://github.com/Artificial-Sweetener/Substitute-BackEnd/issues"
+
+[tool.comfy]
+PublisherId = "artificialsweetener"
+DisplayName = "Substitute BackEnd"
+Icon = ""
+includes = []
+
+[tool.setuptools.packages.find]
+include = ["substitute_backend*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "ASYNC",
+    "B",
+    "C4",
+    "D",
+    "E",
+    "F",
+    "I",
+    "LOG",
+    "PT",
+    "RUF",
+    "SIM",
+    "TRY",
+    "UP",
+]
+ignore = [
+    "COM812",
+    "D202",
+    "D203",
+    "D213",
+    "EM101",
+    "TRY003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+explicit_package_bases = true
+files = ["substitute_backend", "tests", "tools"]
+
+[[tool.mypy.overrides]]
+module = [
+    "sugar.api.builder",
+    "sugar.catalog.artifacts",
+    "sugar.dsl.ast",
+    "sugar.dsl.parser",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
