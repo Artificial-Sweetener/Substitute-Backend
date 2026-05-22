@@ -17,12 +17,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from concurrent.futures import Executor
 from dataclasses import dataclass
-from time import perf_counter
 
 from aiohttp import web
 
@@ -48,7 +45,6 @@ class CubeLibraryRouteHandlers:
     load_cube: RouteHandler
     prewarm_cube: RouteHandler
     icon_asset: RouteHandler
-    compile_workflow: RouteHandler
     list_packs: RouteHandler
     preflight_pack: RouteHandler
     add_pack: RouteHandler
@@ -64,19 +60,8 @@ def build_cube_library_route_handlers(
     logger: logging.Logger,
     *,
     diagnostics: DiagnosticLogger,
-    compile_executor: Executor | None = None,
 ) -> CubeLibraryRouteHandlers:
     """Build thin HTTP handlers over Cube Library application services."""
-
-    async def _run_compile(
-        action: Callable[[], Mapping[str, object]],
-    ) -> Mapping[str, object]:
-        """Run blocking compile work outside the aiohttp event loop."""
-
-        if compile_executor is None:
-            return action()
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(compile_executor, action)
 
     async def status(request: web.Request) -> web.Response:
         """Return target Cube Library availability."""
@@ -260,57 +245,6 @@ def build_cube_library_route_handlers(
                 )
             )
 
-    async def compile_workflow(request: web.Request) -> web.Response:
-        """Compile Sugar script through the active target Cube Library."""
-
-        try:
-            body = await _json_object_body(request)
-            sugar_script_text = _required_str(body, "sugarScriptText")
-            diagnostic_context = _route_diagnostic_context(request)
-            _log_route_diagnostic(
-                diagnostics,
-                diagnostic_context,
-                "backend_compile_route_start",
-                script_length=len(sugar_script_text),
-                output_dir_present=bool(_optional_str(body, "outputDir")),
-            )
-            started_at = perf_counter()
-            output_dir = _optional_str(body, "outputDir")
-            payload = await _run_compile(
-                lambda: services.library.compile_workflow(
-                    sugar_script_text=sugar_script_text,
-                    output_dir=output_dir,
-                    diagnostic_context=diagnostic_context,
-                )
-            )
-            used_cubes = payload.get("usedCubes")
-            _log_route_diagnostic(
-                diagnostics,
-                diagnostic_context,
-                "backend_compile_route_return",
-                catalog_revision=payload.get("catalogRevision", ""),
-                used_cube_count=(len(used_cubes) if isinstance(used_cubes, list) else ""),
-                duration_ms=round((perf_counter() - started_at) * 1000, 3),
-            )
-            return web.json_response(payload)
-        except BackendHttpError as exc:
-            return json_error(exc)
-        except Exception:  # pragma: no cover - defensive host boundary
-            logger.exception(
-                "cube library workflow compile route failed",
-                extra={
-                    "operation": "cube-library-workflow-compile",
-                    "route": "/substitute/v1/cube-library/workflows/compile",
-                },
-            )
-            return json_error(
-                BackendHttpError(
-                    message="Workflow could not be compiled.",
-                    status=500,
-                    code="compile-failed",
-                )
-            )
-
     async def list_packs(request: web.Request) -> web.Response:
         """Return tracked Cube Packs."""
 
@@ -420,7 +354,6 @@ def build_cube_library_route_handlers(
         load_cube=load_cube,
         prewarm_cube=prewarm_cube,
         icon_asset=icon_asset,
-        compile_workflow=compile_workflow,
         list_packs=list_packs,
         preflight_pack=preflight_pack,
         add_pack=add_pack,

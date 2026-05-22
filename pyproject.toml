@@ -77,15 +77,6 @@ strict = true
 explicit_package_bases = true
 files = ["substitute_backend", "tests", "tools"]
 
-[[tool.mypy.overrides]]
-module = [
-    "sugar.api.builder",
-    "sugar.catalog.artifacts",
-    "sugar.dsl.ast",
-    "sugar.dsl.parser",
-]
-ignore_missing_imports = true
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

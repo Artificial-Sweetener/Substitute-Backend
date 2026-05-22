@@ -29,7 +29,7 @@ class CubeLibraryCapabilities:
     schema_version: int = 1
     catalog_supported: bool = True
     artifact_load_supported: bool = True
-    workflow_compile_supported: bool = True
+    workflow_compile_supported: bool = False
     pack_management_supported: bool = True
     dependency_readiness_supported: bool = True
 

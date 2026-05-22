@@ -21,7 +21,6 @@ import asyncio
 import json
 import logging
 from collections.abc import Mapping
-from concurrent.futures import Executor, Future
 from typing import Any, cast
 
 import pytest
@@ -66,26 +65,6 @@ class FakeRequest:
         """Return the configured JSON body."""
 
         return self._body
-
-
-class RecordingExecutor(Executor):
-    """Record executor submissions while running work deterministically."""
-
-    def __init__(self) -> None:
-        """Initialize the submission counter."""
-
-        self.submit_count = 0
-
-    def submit(self, fn: Any, /, *args: Any, **kwargs: Any) -> Future[Any]:
-        """Execute the submitted callable and return a completed future."""
-
-        self.submit_count += 1
-        future: Future[Any] = Future()
-        try:
-            future.set_result(fn(*args, **kwargs))
-        except Exception as exc:  # pragma: no cover - mirrors Executor contract
-            future.set_exception(exc)
-        return future
 
 
 def _request(
@@ -196,27 +175,6 @@ class RecordingGateway:
             return b"<svg></svg>", "image/svg+xml"
         return b"png-bytes", "image/png"
 
-    def compile_workflow(
-        self,
-        *,
-        sugar_script_text: str,
-        output_dir: str | None,
-        diagnostic_context: DiagnosticContext | None = None,
-    ) -> JsonObject:
-        """Return a compiled workflow response."""
-
-        _ = diagnostic_context
-        self.calls.append(
-            (
-                "compile_workflow",
-                {
-                    "sugar_script_text": sugar_script_text,
-                    "output_dir": output_dir,
-                },
-            )
-        )
-        return {"schemaVersion": 1, "prompt": {}, "workflow": {"nodes": []}}
-
     def list_packs(self) -> JsonObject:
         """Return a pack listing."""
 
@@ -313,20 +271,6 @@ def _handlers(gateway: RecordingGateway) -> CubeLibraryRouteHandlers:
         CubeLibraryServices(library=CubeLibraryService(gateway=gateway)),
         logger=get_logger("tests.cube_library.routes"),
         diagnostics=diagnostics_from_environment(get_logger("tests.cube_library.diagnostics")),
-    )
-
-
-def _handlers_with_executor(
-    gateway: RecordingGateway,
-    executor: Executor,
-) -> CubeLibraryRouteHandlers:
-    """Build route handlers with an explicit compile executor."""
-
-    return build_cube_library_route_handlers(
-        CubeLibraryServices(library=CubeLibraryService(gateway=gateway)),
-        logger=get_logger("tests.cube_library.routes"),
-        diagnostics=diagnostics_from_environment(get_logger("tests.cube_library.diagnostics")),
-        compile_executor=executor,
     )
 
 
@@ -612,63 +556,6 @@ def test_icon_asset_route_preserves_backend_errors() -> None:
             "code": "cube-library-not-found",
             "message": "Cube icon not found.",
         }
-
-    asyncio.run(run())
-
-
-def test_compile_route_delegates_to_gateway() -> None:
-    """Workflow compile route should validate body and call the gateway."""
-
-    async def run() -> None:
-        gateway = RecordingGateway()
-        response = await _handlers(gateway).compile_workflow(
-            _request(
-                body={
-                    "schemaVersion": 1,
-                    "sugarScriptText": 'use "Owner/Repo/demo.cube"@1.0.0 as Demo',
-                    "outputDir": "E:/outputs",
-                }
-            )
-        )
-
-        assert response.status == 200
-        assert _payload(response)["schemaVersion"] == 1
-        assert _payload(response)["prompt"] == {}
-        assert _payload(response)["workflow"] == {"nodes": []}
-        assert gateway.calls == [
-            (
-                "compile_workflow",
-                {
-                    "sugar_script_text": 'use "Owner/Repo/demo.cube"@1.0.0 as Demo',
-                    "output_dir": "E:/outputs",
-                },
-            )
-        ]
-
-    asyncio.run(run())
-
-
-def test_compile_route_uses_executor_when_provided() -> None:
-    """Workflow compile should cross the executor boundary before gateway work."""
-
-    async def run() -> None:
-        gateway = RecordingGateway()
-        executor = RecordingExecutor()
-        response = await _handlers_with_executor(gateway, executor).compile_workflow(
-            _request(body={"sugarScriptText": 'use "Owner/Repo/demo.cube" as Demo'})
-        )
-
-        assert response.status == 200
-        assert executor.submit_count == 1
-        assert gateway.calls == [
-            (
-                "compile_workflow",
-                {
-                    "sugar_script_text": 'use "Owner/Repo/demo.cube" as Demo',
-                    "output_dir": None,
-                },
-            )
-        ]
 
     asyncio.run(run())
 

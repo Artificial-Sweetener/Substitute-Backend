@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from concurrent.futures import Executor
 from dataclasses import dataclass
 from typing import Protocol, TypeVar, runtime_checkable
 
@@ -103,10 +102,6 @@ class BackendServicesLike(Protocol):
         """Return Cube Library services."""
 
     @property
-    def cube_library_compile_executor(self) -> Executor:
-        """Return the executor for blocking Cube Library compile work."""
-
-    @property
     def environment(self) -> EnvironmentManagementServices:
         """Return environment management services."""
 
@@ -159,7 +154,6 @@ def register_routes(
         services.cube_library,
         logger=get_logger("cube_library.routes"),
         diagnostics=services.diagnostics,
-        compile_executor=services.cube_library_compile_executor,
     )
     preview_asset_handlers = build_preview_asset_route_handlers(
         services.preview_assets,
@@ -189,9 +183,6 @@ def register_routes(
     routes.get("/substitute/v1/cube-library/cubes/load")(cube_library_handlers.load_cube)
     routes.post("/substitute/v1/cube-library/cubes/prewarm")(cube_library_handlers.prewarm_cube)
     routes.get("/substitute/v1/cube-library/cubes/icon")(cube_library_handlers.icon_asset)
-    routes.post("/substitute/v1/cube-library/workflows/compile")(
-        cube_library_handlers.compile_workflow
-    )
     routes.get("/substitute/v1/cube-library/packs")(cube_library_handlers.list_packs)
     routes.post("/substitute/v1/cube-library/packs/preflight")(cube_library_handlers.preflight_pack)
     routes.post("/substitute/v1/cube-library/packs")(cube_library_handlers.add_pack)

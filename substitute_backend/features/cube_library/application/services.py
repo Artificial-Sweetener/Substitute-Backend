@@ -69,15 +69,6 @@ class CubeLibraryGateway(Protocol):
     def icon_asset(self, cube_id: str) -> tuple[bytes, str]:
         """Return icon bytes and media type for one cube."""
 
-    def compile_workflow(
-        self,
-        *,
-        sugar_script_text: str,
-        output_dir: str | None,
-        diagnostic_context: DiagnosticContext | None = None,
-    ) -> JsonObject:
-        """Compile Sugar script against the active target Cube Library."""
-
     def list_packs(self) -> JsonObject:
         """Return tracked Cube Pack records."""
 
@@ -191,21 +182,6 @@ class CubeLibraryService:
         """Return icon bytes and media type for one cube."""
 
         return self.gateway.icon_asset(cube_id)
-
-    def compile_workflow(
-        self,
-        *,
-        sugar_script_text: str,
-        output_dir: str | None,
-        diagnostic_context: DiagnosticContext | None = None,
-    ) -> JsonObject:
-        """Compile Sugar script against the active target Cube Library."""
-
-        return self.gateway.compile_workflow(
-            sugar_script_text=sugar_script_text,
-            output_dir=output_dir,
-            diagnostic_context=diagnostic_context,
-        )
 
     def list_packs(self) -> JsonObject:
         """Return tracked Cube Packs."""

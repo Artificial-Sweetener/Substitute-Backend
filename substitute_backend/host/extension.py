@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -164,7 +163,6 @@ class BackendServices:
 
     model_metadata: ModelMetadataServices
     cube_library: CubeLibraryServices
-    cube_library_compile_executor: ThreadPoolExecutor
     cube_library_change_monitor: CubeLibraryChangeMonitor
     environment: EnvironmentManagementServices
     model_loading: ModelLoadingServices
@@ -268,15 +266,6 @@ def build_cube_library_services(
                 diagnostics=diagnostics,
             )
         )
-    )
-
-
-def build_cube_library_compile_executor() -> ThreadPoolExecutor:
-    """Build the bounded executor used for blocking Cube Library compile work."""
-
-    return ThreadPoolExecutor(
-        max_workers=1,
-        thread_name_prefix="substitute-cube-compile",
     )
 
 
@@ -404,11 +393,9 @@ def build_backend_services(
 
     diagnostics = diagnostics_from_environment(get_logger("diagnostics"))
     cube_library = build_cube_library_services(extension_root, diagnostics)
-    cube_library_compile_executor = build_cube_library_compile_executor()
     return BackendServices(
         model_metadata=build_model_metadata_services(extension_root, model_roots=model_roots),
         cube_library=cube_library,
-        cube_library_compile_executor=cube_library_compile_executor,
         cube_library_change_monitor=build_cube_library_change_monitor(
             cube_library,
             diagnostics,

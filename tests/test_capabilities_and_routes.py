@@ -132,7 +132,6 @@ def test_register_routes_uses_expected_surface(tmp_path: Path) -> None:
         ("GET", "/substitute/v1/cube-library/cubes/load"),
         ("POST", "/substitute/v1/cube-library/cubes/prewarm"),
         ("GET", "/substitute/v1/cube-library/cubes/icon"),
-        ("POST", "/substitute/v1/cube-library/workflows/compile"),
         ("GET", "/substitute/v1/cube-library/packs"),
         ("POST", "/substitute/v1/cube-library/packs/preflight"),
         ("POST", "/substitute/v1/cube-library/packs"),
@@ -188,7 +187,7 @@ def test_capabilities_payload_advertises_preview_assets(tmp_path: Path) -> None:
             "schemaVersion": 1,
             "catalogSupported": True,
             "artifactLoadSupported": True,
-            "workflowCompileSupported": True,
+            "workflowCompileSupported": False,
             "packManagementSupported": True,
             "dependencyReadinessSupported": True,
         }
