@@ -110,6 +110,18 @@ class CubeLibraryGateway(Protocol):
     def readiness(self) -> JsonObject:
         """Return read-only dependency readiness for the target library."""
 
+    def dependency_readiness(self) -> JsonObject:
+        """Return install-capable dependency readiness for the target library."""
+
+    def repair_dependencies(
+        self,
+        *,
+        baseline_only: bool,
+        approved_node_ids: tuple[str, ...],
+        sync_enabled_repos: bool,
+    ) -> JsonObject:
+        """Repair approved target library dependencies."""
+
 
 @dataclass(frozen=True)
 class CubeLibraryService:
@@ -252,6 +264,26 @@ class CubeLibraryService:
         """Return read-only target dependency readiness."""
 
         return self.gateway.readiness()
+
+    def dependency_readiness(self) -> JsonObject:
+        """Return install-capable target dependency readiness."""
+
+        return self.gateway.dependency_readiness()
+
+    def repair_dependencies(
+        self,
+        *,
+        baseline_only: bool,
+        approved_node_ids: tuple[str, ...],
+        sync_enabled_repos: bool,
+    ) -> JsonObject:
+        """Repair approved target dependencies."""
+
+        return self.gateway.repair_dependencies(
+            baseline_only=baseline_only,
+            approved_node_ids=approved_node_ids,
+            sync_enabled_repos=sync_enabled_repos,
+        )
 
 
 @dataclass(frozen=True)

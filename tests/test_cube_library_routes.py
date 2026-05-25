@@ -263,6 +263,33 @@ class RecordingGateway:
         self.calls.append(("readiness", {}))
         return {"schemaVersion": 1, "ready": True}
 
+    def dependency_readiness(self) -> JsonObject:
+        """Return dependency readiness response."""
+
+        self.calls.append(("dependency_readiness", {}))
+        return {"schemaVersion": 1, "ready": False, "installPlan": []}
+
+    def repair_dependencies(
+        self,
+        *,
+        baseline_only: bool,
+        approved_node_ids: tuple[str, ...],
+        sync_enabled_repos: bool,
+    ) -> JsonObject:
+        """Return dependency repair response."""
+
+        self.calls.append(
+            (
+                "repair_dependencies",
+                {
+                    "baseline_only": baseline_only,
+                    "approved_node_ids": approved_node_ids,
+                    "sync_enabled_repos": sync_enabled_repos,
+                },
+            )
+        )
+        return {"schemaVersion": 1, "restartRequired": True}
+
 
 def _handlers(gateway: RecordingGateway) -> CubeLibraryRouteHandlers:
     """Build route handlers for a fake gateway."""
@@ -652,5 +679,40 @@ def test_gateway_errors_return_structured_json() -> None:
             "code": "catalog-unavailable",
             "message": "Catalog unavailable.",
         }
+
+    asyncio.run(run())
+
+
+def test_dependency_routes_delegate_to_gateway() -> None:
+    """Dependency readiness and repair routes should use dedicated gateway methods."""
+
+    async def run() -> None:
+        gateway = RecordingGateway()
+        handlers = _handlers(gateway)
+
+        readiness_response = await handlers.dependency_readiness(_request())
+        repair_response = await handlers.repair_dependencies(
+            _request(
+                body={
+                    "baselineOnly": False,
+                    "approvedNodeIds": ["comfyui-example"],
+                    "syncEnabledRepos": True,
+                }
+            )
+        )
+
+        assert readiness_response.status == 200
+        assert repair_response.status == 200
+        assert gateway.calls == [
+            ("dependency_readiness", {}),
+            (
+                "repair_dependencies",
+                {
+                    "baseline_only": False,
+                    "approved_node_ids": ("comfyui-example",),
+                    "sync_enabled_repos": True,
+                },
+            ),
+        ]
 
     asyncio.run(run())

@@ -118,6 +118,8 @@ def test_register_routes_uses_expected_surface(tmp_path: Path) -> None:
 
     assert prompt_server.routes.registered == [
         ("GET", "/substitute/v1/capabilities"),
+        ("POST", "/substitute/v1/prompt/queue"),
+        ("POST", "/substitute/v1/sugar/compile"),
         ("GET", "/substitute/v1/models"),
         ("GET", "/substitute/v1/models/by-hash/{sha256}"),
         ("POST", "/substitute/v1/models/downloads/civitai"),
@@ -140,6 +142,8 @@ def test_register_routes_uses_expected_surface(tmp_path: Path) -> None:
         ("POST", "/substitute/v1/cube-library/packs/sync"),
         ("POST", "/substitute/v1/cube-library/packs/sync-all"),
         ("GET", "/substitute/v1/cube-library/readiness"),
+        ("GET", "/substitute/v1/cube-library/dependencies/readiness"),
+        ("POST", "/substitute/v1/cube-library/dependencies/repair"),
         ("GET", "/substitute/v1/environment/capabilities"),
         ("GET", "/substitute/v1/environment/status"),
         ("GET", "/substitute/v1/environment/packages"),
@@ -183,6 +187,8 @@ def test_capabilities_payload_advertises_preview_assets(tmp_path: Path) -> None:
         payload = json.loads(response.text)
         assert "preview-assets" in payload["features"]
         assert "cube-library" in payload["features"]
+        assert "prompt-queue-facade" in payload["features"]
+        assert "sugar-compile" in payload["features"]
         assert payload["cubeLibrary"] == {
             "schemaVersion": 1,
             "catalogSupported": True,
@@ -190,10 +196,24 @@ def test_capabilities_payload_advertises_preview_assets(tmp_path: Path) -> None:
             "workflowCompileSupported": False,
             "packManagementSupported": True,
             "dependencyReadinessSupported": True,
+            "dependencyRepairSupported": True,
         }
         assert payload["previewAssets"] == {
             "schemaVersion": 1,
             "taesdPreparationSupported": True,
+        }
+        assert payload["promptQueue"] == {
+            "schemaVersion": 1,
+            "queueRoute": "/substitute/v1/prompt/queue",
+            "optimizationSupported": True,
+            "optimizationReportSupported": True,
+            "debugDumpSupported": False,
+        }
+        assert payload["sugarCompile"] == {
+            "schemaVersion": 1,
+            "available": True,
+            "compileRoute": "/substitute/v1/sugar/compile",
+            "liveNodeDefinitions": True,
         }
 
     asyncio.run(run_capabilities())

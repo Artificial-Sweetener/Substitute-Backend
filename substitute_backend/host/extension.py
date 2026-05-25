@@ -21,6 +21,7 @@ import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from substitute_backend.features.cube_library.application import (
     CubeLibraryChangeMonitor,
@@ -143,6 +144,23 @@ from substitute_backend.features.preview_assets.infrastructure import (
     ComfyVaeApproxPathProvider,
     HttpAssetDownloader,
 )
+from substitute_backend.features.prompt_queue.application import (
+    PromptGraphOptimizer,
+    PromptQueueService,
+    PromptQueueServices,
+)
+from substitute_backend.features.prompt_queue.infrastructure.comfy_prompt_queue import (
+    ComfyPromptQueueAdapter,
+    ExecutionModuleLike,
+    NodeReplaceManagerLike,
+    PromptQueueLike,
+    PromptServerRuntimeLike,
+)
+from substitute_backend.features.sugar_compile.application import (
+    SugarCompileService,
+    SugarCompileServices,
+)
+from substitute_backend.features.sugar_compile.infrastructure import SugarDslWorkflowCompiler
 from substitute_backend.host.routes import (
     BackendRouteHandlers,
     PromptServerClassLike,
@@ -169,6 +187,8 @@ class BackendServices:
     downloads: DownloadServices
     preview_assets: PreviewAssetServices
     cube_outputs: CubeOutputServices
+    prompt_queue: PromptQueueServices
+    sugar_compile: SugarCompileServices
     diagnostics: DiagnosticLogger
 
 
@@ -383,6 +403,43 @@ def build_preview_asset_services() -> PreviewAssetServices:
     )
 
 
+def build_prompt_queue_services(
+    extension_root: Path,
+    prompt_server: object | None = None,
+    execution_module: ExecutionModuleLike | None = None,
+) -> PromptQueueServices:
+    """Build services for backend-owned prompt queueing."""
+
+    runtime = (
+        prompt_server
+        if isinstance(prompt_server, PromptServerRuntimeLike)
+        else _UnavailablePromptServer()
+    )
+    execution_runtime = execution_module or _load_execution_module()
+    adapter = ComfyPromptQueueAdapter(
+        prompt_server=runtime,
+        execution_module=execution_runtime,
+        optimizer=PromptGraphOptimizer(logger=get_logger("prompt_queue.optimizer")),
+        logger=get_logger("prompt_queue.comfy"),
+    )
+    return PromptQueueServices(queue=PromptQueueService(adapter))
+
+
+def build_sugar_compile_services(cube_library: CubeLibraryServices) -> SugarCompileServices:
+    """Build services for backend-owned Sugar-DSL compilation."""
+
+    compiler = SugarDslWorkflowCompiler(
+        cube_library=cube_library.library,
+        logger=get_logger("sugar_compile.compiler"),
+    )
+    return SugarCompileServices(
+        compile=SugarCompileService(
+            compiler=compiler,
+            logger=get_logger("sugar_compile.service"),
+        )
+    )
+
+
 def build_backend_services(
     extension_root: Path,
     model_roots: ModelRootsProvider | None = None,
@@ -406,6 +463,8 @@ def build_backend_services(
         downloads=build_download_services(prompt_server=prompt_server),
         preview_assets=preview_assets or build_preview_asset_services(),
         cube_outputs=build_cube_output_services(extension_root, prompt_server=prompt_server),
+        prompt_queue=build_prompt_queue_services(extension_root, prompt_server=prompt_server),
+        sugar_compile=build_sugar_compile_services(cube_library),
         diagnostics=diagnostics,
     )
 
@@ -479,3 +538,68 @@ def _subscribe_cube_library_immediate_changes(
         )
 
     subscribe(publish_change)
+
+
+class _UnavailablePromptQueue:
+    """Reject prompt queue use when Comfy PromptServer is unavailable."""
+
+    def put(self, item: object) -> None:
+        """Raise for queue attempts outside a live PromptServer runtime."""
+
+        _ = item
+        msg = "Comfy PromptServer prompt queue is unavailable."
+        raise RuntimeError(msg)
+
+
+class _UnavailableNodeReplaceManager:
+    """Reject node replacement use when Comfy PromptServer is unavailable."""
+
+    def apply_replacements(self, prompt: object) -> None:
+        """Raise for replacement attempts outside a live PromptServer runtime."""
+
+        _ = prompt
+        msg = "Comfy node replacement manager is unavailable."
+        raise RuntimeError(msg)
+
+
+class _UnavailablePromptServer:
+    """Provide a PromptServer-shaped object that fails only if used."""
+
+    number = 0.0
+    prompt_queue: PromptQueueLike = _UnavailablePromptQueue()
+    node_replace_manager: NodeReplaceManagerLike = _UnavailableNodeReplaceManager()
+
+    def trigger_on_prompt(self, json_data: dict[str, object]) -> dict[str, object]:
+        """Reject prompt hooks outside a live PromptServer runtime."""
+
+        _ = json_data
+        msg = "Comfy PromptServer is unavailable."
+        raise RuntimeError(msg)
+
+
+class _UnavailableExecutionModule:
+    """Provide an execution-shaped object that fails only if used."""
+
+    SENSITIVE_EXTRA_DATA_KEYS: tuple[str, ...] = ()
+
+    async def validate_prompt(
+        self,
+        prompt_id: str,
+        prompt: object,
+        partial_execution_list: object,
+    ) -> tuple[bool, object, object, object]:
+        """Reject validation outside a live Comfy execution runtime."""
+
+        _ = (prompt_id, prompt, partial_execution_list)
+        msg = "Comfy execution module is unavailable."
+        raise RuntimeError(msg)
+
+
+def _load_execution_module() -> ExecutionModuleLike:
+    """Import Comfy's execution module only when available in the host process."""
+
+    try:
+        import execution  # type: ignore[import-not-found]
+    except ImportError:
+        return _UnavailableExecutionModule()
+    return cast("ExecutionModuleLike", execution)

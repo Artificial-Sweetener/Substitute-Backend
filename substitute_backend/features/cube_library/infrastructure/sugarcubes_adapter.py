@@ -317,6 +317,29 @@ class SugarCubesLibraryAdapter:
 
         return self._call(lambda: self._library().library_readiness(self._custom_nodes_root))
 
+    def dependency_readiness(self) -> JsonObject:
+        """Return install-capable dependency readiness from SugarCubes."""
+
+        return self._call(lambda: self._dependencies().readiness())
+
+    def repair_dependencies(
+        self,
+        *,
+        baseline_only: bool,
+        approved_node_ids: tuple[str, ...],
+        sync_enabled_repos: bool,
+    ) -> JsonObject:
+        """Forward dependency repair to SugarCubes without owning its logic."""
+
+        approval_policy = "silent_baseline_only" if baseline_only else "approved_node_ids"
+        return self._call(
+            lambda: self._dependencies().repair(
+                approval_policy=approval_policy,
+                approved_node_ids=approved_node_ids,
+                sync_enabled_repos=sync_enabled_repos,
+            )
+        )
+
     def _rewrite_loaded_icon_descriptor(
         self,
         *,
@@ -386,6 +409,19 @@ class SugarCubesLibraryAdapter:
                 code="sugarcubes-unavailable",
             )
         return library
+
+    def _dependencies(self) -> Any:
+        """Return the SugarCubes dependency service or raise a typed HTTP error."""
+
+        services = self._load_services()
+        dependencies = getattr(services, "dependencies", None)
+        if dependencies is None:
+            raise BackendHttpError(
+                message="SugarCubes did not expose dependency maintenance.",
+                status=503,
+                code="sugarcubes-unavailable",
+            )
+        return dependencies
 
     def _load_services(self) -> Any:
         """Import SugarCubes services lazily so backend tests stay isolated."""

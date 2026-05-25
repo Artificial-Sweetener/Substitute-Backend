@@ -32,6 +32,7 @@ class CubeLibraryCapabilities:
     workflow_compile_supported: bool = False
     pack_management_supported: bool = True
     dependency_readiness_supported: bool = True
+    dependency_repair_supported: bool = True
 
     def to_payload(self) -> JsonObject:
         """Return the public capability payload."""
@@ -43,4 +44,5 @@ class CubeLibraryCapabilities:
             "workflowCompileSupported": self.workflow_compile_supported,
             "packManagementSupported": self.pack_management_supported,
             "dependencyReadinessSupported": self.dependency_readiness_supported,
+            "dependencyRepairSupported": self.dependency_repair_supported,
         }

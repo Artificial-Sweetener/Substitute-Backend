@@ -53,6 +53,8 @@ class CubeLibraryRouteHandlers:
     sync_pack: RouteHandler
     sync_all_packs: RouteHandler
     readiness: RouteHandler
+    dependency_readiness: RouteHandler
+    repair_dependencies: RouteHandler
 
 
 def build_cube_library_route_handlers(
@@ -347,6 +349,37 @@ def build_cube_library_route_handlers(
         except BackendHttpError as exc:
             return json_error(exc)
 
+    async def dependency_readiness(request: web.Request) -> web.Response:
+        """Return install-capable dependency readiness for the target library."""
+
+        _ = request
+        try:
+            return web.json_response(services.library.dependency_readiness())
+        except BackendHttpError as exc:
+            return json_error(exc)
+
+    async def repair_dependencies(request: web.Request) -> web.Response:
+        """Repair approved target library dependencies."""
+
+        try:
+            body = await _json_object_body(request)
+            approved_node_ids = body.get("approvedNodeIds")
+            if not isinstance(approved_node_ids, list):
+                approved_node_ids = []
+            return web.json_response(
+                services.library.repair_dependencies(
+                    baseline_only=_optional_bool(body, "baselineOnly", False),
+                    approved_node_ids=tuple(
+                        value.strip()
+                        for value in approved_node_ids
+                        if isinstance(value, str) and value.strip()
+                    ),
+                    sync_enabled_repos=_optional_bool(body, "syncEnabledRepos", False),
+                )
+            )
+        except BackendHttpError as exc:
+            return json_error(exc)
+
     return CubeLibraryRouteHandlers(
         status=status,
         catalog=catalog,
@@ -362,6 +395,8 @@ def build_cube_library_route_handlers(
         sync_pack=sync_pack,
         sync_all_packs=sync_all_packs,
         readiness=readiness,
+        dependency_readiness=dependency_readiness,
+        repair_dependencies=repair_dependencies,
     )
 
 
