@@ -149,6 +149,9 @@ from substitute_backend.features.prompt_queue.application import (
     PromptQueueService,
     PromptQueueServices,
 )
+from substitute_backend.features.prompt_queue.infrastructure.comfy_node_definitions import (
+    load_comfy_node_definitions,
+)
 from substitute_backend.features.prompt_queue.infrastructure.comfy_prompt_queue import (
     ComfyPromptQueueAdapter,
     ExecutionModuleLike,
@@ -416,10 +419,14 @@ def build_prompt_queue_services(
         else _UnavailablePromptServer()
     )
     execution_runtime = execution_module or _load_execution_module()
+    optimizer_logger = get_logger("prompt_queue.optimizer")
     adapter = ComfyPromptQueueAdapter(
         prompt_server=runtime,
         execution_module=execution_runtime,
-        optimizer=PromptGraphOptimizer(logger=get_logger("prompt_queue.optimizer")),
+        optimizer=PromptGraphOptimizer(
+            logger=optimizer_logger,
+            node_definitions=load_comfy_node_definitions(optimizer_logger),
+        ),
         logger=get_logger("prompt_queue.comfy"),
     )
     return PromptQueueServices(queue=PromptQueueService(adapter))

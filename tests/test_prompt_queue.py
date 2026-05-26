@@ -23,6 +23,10 @@ import uuid
 from typing import cast
 
 from substitute_backend.features.prompt_queue.application import PromptGraphOptimizer
+from substitute_backend.features.prompt_queue.application.node_definitions import (
+    NodeDefinition,
+    NodeDefinitionProvider,
+)
 from substitute_backend.features.prompt_queue.domain.graph import ApiPrompt
 from substitute_backend.features.prompt_queue.domain.optimization_report import OptimizationReport
 from substitute_backend.features.prompt_queue.infrastructure.comfy_prompt_queue import (
@@ -76,6 +80,193 @@ def test_graph_optimizer_bypasses_empty_lora_scheduler_before_deduping_shared_pr
     assert [replacement.kind for replacement in report.replacements].count(
         "empty_lora_passthrough"
     ) == 3
+
+
+def test_graph_optimizer_collapses_parallel_identical_model_resource_streams() -> None:
+    """Equivalent parallel model patch streams should share one canonical stream."""
+
+    optimizer = _resource_optimizer()
+    optimized, report = optimizer.optimize(
+        {
+            "1": _node("TestModelClipLoader", ckpt_name="base"),
+            "2": _node("TestModelPatch", model=["1", 0], strength=0.7),
+            "3": _node("TestModelClipLoader", ckpt_name="base"),
+            "4": _node("TestModelPatch", model=["3", 0], strength=0.7),
+            "5": _node("TestSampler", model=["2", 0]),
+            "6": _node("TestSampler", model=["4", 0]),
+        }
+    )
+
+    assert report.optimized is True
+    assert _node_ids_by_class(optimized, "TestModelPatch") == ["2"]
+    assert _node_ids_by_class(optimized, "TestModelClipLoader") == ["1"]
+    assert _inputs(optimized, "6")["model"] == ["2", 0]
+    assert [replacement.kind for replacement in report.replacements] == ["model_resource_stream"]
+
+
+def test_graph_optimizer_collapses_parallel_identical_clip_resource_streams() -> None:
+    """Equivalent parallel CLIP patch streams should share one canonical stream."""
+
+    optimizer = _resource_optimizer()
+    optimized, report = optimizer.optimize(
+        {
+            "1": _node("TestModelClipLoader", ckpt_name="base"),
+            "2": _node("TestClipPatch", clip=["1", 1], layer=-2),
+            "3": _node("TestModelClipLoader", ckpt_name="base"),
+            "4": _node("TestClipPatch", clip=["3", 1], layer=-2),
+            "5": _node("TestSampler", clip=["2", 0]),
+            "6": _node("TestSampler", clip=["4", 0]),
+        }
+    )
+
+    assert report.optimized is True
+    assert _node_ids_by_class(optimized, "TestClipPatch") == ["2"]
+    assert _node_ids_by_class(optimized, "TestModelClipLoader") == ["1"]
+    assert _inputs(optimized, "6")["clip"] == ["2", 0]
+    assert [replacement.kind for replacement in report.replacements] == ["clip_resource_stream"]
+
+
+def test_graph_optimizer_collapses_parallel_identical_vae_resource_streams() -> None:
+    """Equivalent parallel VAE patch streams should share one canonical stream."""
+
+    optimizer = _resource_optimizer()
+    optimized, report = optimizer.optimize(
+        {
+            "1": _node("TestVaeLoader", vae_name="base-vae"),
+            "2": _node("TestVaePatch", vae=["1", 0], mode="tiled"),
+            "3": _node("TestVaeLoader", vae_name="base-vae"),
+            "4": _node("TestVaePatch", vae=["3", 0], mode="tiled"),
+            "5": _node("TestVaeConsumer", vae=["2", 0]),
+            "6": _node("TestVaeConsumer", vae=["4", 0]),
+        }
+    )
+
+    assert report.optimized is True
+    assert _node_ids_by_class(optimized, "TestVaePatch") == ["2"]
+    assert _node_ids_by_class(optimized, "TestVaeLoader") == ["1"]
+    assert _inputs(optimized, "6")["vae"] == ["2", 0]
+    assert [replacement.kind for replacement in report.replacements] == ["vae_resource_stream"]
+
+
+def test_graph_optimizer_keeps_resource_streams_with_different_loader_identity() -> None:
+    """Matching patch literals should not collapse across different loaded resources."""
+
+    optimizer = _resource_optimizer()
+    optimized, report = optimizer.optimize(
+        {
+            "1": _node("TestModelClipLoader", ckpt_name="base-a"),
+            "2": _node("TestModelPatch", model=["1", 0], strength=0.7),
+            "3": _node("TestModelClipLoader", ckpt_name="base-b"),
+            "4": _node("TestModelPatch", model=["3", 0], strength=0.7),
+            "5": _node("TestSampler", model=["2", 0]),
+            "6": _node("TestSampler", model=["4", 0]),
+        }
+    )
+
+    assert report.optimized is False
+    assert _node_ids_by_class(optimized, "TestModelPatch") == ["2", "4"]
+    assert _inputs(optimized, "6")["model"] == ["4", 0]
+
+
+def test_graph_optimizer_keeps_resource_streams_with_unknown_loader_roots() -> None:
+    """Unknown roots should act as identity barriers even when downstream patches match."""
+
+    optimizer = _resource_optimizer()
+    optimized, report = optimizer.optimize(
+        {
+            "1": _node("TestUnknownLoader", ckpt_name="base"),
+            "2": _node("TestModelPatch", model=["1", 0], strength=0.7),
+            "3": _node("TestUnknownLoader", ckpt_name="base"),
+            "4": _node("TestModelPatch", model=["3", 0], strength=0.7),
+            "5": _node("TestSampler", model=["2", 0]),
+            "6": _node("TestSampler", model=["4", 0]),
+        }
+    )
+
+    assert report.optimized is False
+    assert _node_ids_by_class(optimized, "TestModelPatch") == ["2", "4"]
+    assert _inputs(optimized, "6")["model"] == ["4", 0]
+
+
+def test_graph_optimizer_keeps_serial_duplicate_resource_patches() -> None:
+    """A repeated authored patch chain should remain serial."""
+
+    optimizer = _resource_optimizer()
+    optimized, report = optimizer.optimize(
+        {
+            "1": _node("TestModelClipLoader", ckpt_name="base"),
+            "2": _node("TestModelPatch", model=["1", 0], strength=0.7),
+            "3": _node("TestModelPatch", model=["2", 0], strength=0.7),
+            "4": _node("TestSampler", model=["3", 0]),
+        }
+    )
+
+    assert report.optimized is False
+    assert _node_ids_by_class(optimized, "TestModelPatch") == ["2", "3"]
+    assert _inputs(optimized, "3")["model"] == ["2", 0]
+    assert _inputs(optimized, "4")["model"] == ["3", 0]
+
+
+def test_graph_optimizer_does_not_replace_duplicate_loader_only_branches() -> None:
+    """Duplicate roots alone should not create an optimization replacement."""
+
+    optimizer = _resource_optimizer()
+    optimized, report = optimizer.optimize(
+        {
+            "1": _node("TestModelClipLoader", ckpt_name="base"),
+            "2": _node("TestModelClipLoader", ckpt_name="base"),
+            "3": _node("TestSampler", model=["1", 0]),
+            "4": _node("TestSampler", model=["2", 0]),
+        }
+    )
+
+    assert report.optimized is False
+    assert _node_ids_by_class(optimized, "TestModelClipLoader") == ["1", "2"]
+    assert _inputs(optimized, "4")["model"] == ["2", 0]
+
+
+def test_graph_optimizer_does_not_replace_identical_work_nodes() -> None:
+    """Sampler-like work nodes should not be deduped by the generic resource pass."""
+
+    optimizer = _resource_optimizer()
+    optimized, report = optimizer.optimize(
+        {
+            "1": _node("TestModelClipLoader", ckpt_name="base"),
+            "2": _node("TestSampler", model=["1", 0], seed=123),
+            "3": _node("TestSampler", model=["1", 0], seed=123),
+            "4": _node("TestLatentSink", latent=["2", 0]),
+            "5": _node("TestLatentSink", latent=["3", 0]),
+        }
+    )
+
+    assert report.optimized is False
+    assert _node_ids_by_class(optimized, "TestSampler") == ["2", "3"]
+    assert _inputs(optimized, "5")["latent"] == ["3", 0]
+
+
+def test_graph_optimizer_preserves_multi_output_resource_slot_indexes() -> None:
+    """Multi-output resource nodes should rewrite each duplicate slot to the same slot."""
+
+    optimizer = _resource_optimizer()
+    optimized, report = optimizer.optimize(
+        {
+            "1": _node("TestModelClipLoader", ckpt_name="base"),
+            "2": _node("TestLoraResource", model=["1", 0], clip=["1", 1], lora_name="same"),
+            "3": _node("TestModelClipLoader", ckpt_name="base"),
+            "4": _node("TestLoraResource", model=["3", 0], clip=["3", 1], lora_name="same"),
+            "5": _node("TestSampler", model=["4", 0], clip=["4", 1]),
+        }
+    )
+
+    assert report.optimized is True
+    assert _node_ids_by_class(optimized, "TestLoraResource") == ["2"]
+    assert _node_ids_by_class(optimized, "TestModelClipLoader") == ["1"]
+    assert _inputs(optimized, "5")["model"] == ["2", 0]
+    assert _inputs(optimized, "5")["clip"] == ["2", 1]
+    assert [replacement.kind for replacement in report.replacements] == [
+        "model_resource_stream",
+        "clip_resource_stream",
+    ]
 
 
 def test_comfy_queue_adapter_runs_hooks_and_replacements_before_optimization() -> None:
@@ -169,6 +360,73 @@ def test_comfy_queue_adapter_fails_open_after_optimizer_error() -> None:
         "5",
         "6",
     ]
+
+
+def _resource_optimizer() -> PromptGraphOptimizer:
+    """Return an optimizer with compact fake resource node definitions."""
+
+    return PromptGraphOptimizer(
+        logger=logging.getLogger("tests.prompt_queue.optimizer"),
+        node_definitions=NodeDefinitionProvider(
+            (
+                NodeDefinition(
+                    class_type="TestModelClipLoader",
+                    output_types=("MODEL", "CLIP"),
+                    input_types=(("ckpt_name", "STRING"),),
+                ),
+                NodeDefinition(
+                    class_type="TestVaeLoader",
+                    output_types=("VAE",),
+                    input_types=(("vae_name", "STRING"),),
+                ),
+                NodeDefinition(
+                    class_type="TestModelPatch",
+                    output_types=("MODEL",),
+                    input_types=(("model", "MODEL"), ("strength", "FLOAT")),
+                ),
+                NodeDefinition(
+                    class_type="TestClipPatch",
+                    output_types=("CLIP",),
+                    input_types=(("clip", "CLIP"), ("layer", "INT")),
+                ),
+                NodeDefinition(
+                    class_type="TestVaePatch",
+                    output_types=("VAE",),
+                    input_types=(("vae", "VAE"), ("mode", "STRING")),
+                ),
+                NodeDefinition(
+                    class_type="TestLoraResource",
+                    output_types=("MODEL", "CLIP"),
+                    input_types=(
+                        ("model", "MODEL"),
+                        ("clip", "CLIP"),
+                        ("lora_name", "STRING"),
+                    ),
+                ),
+                NodeDefinition(
+                    class_type="TestSampler",
+                    output_types=("LATENT",),
+                    input_types=(("model", "MODEL"), ("clip", "CLIP")),
+                ),
+                NodeDefinition(
+                    class_type="TestVaeConsumer",
+                    output_types=("IMAGE",),
+                    input_types=(("vae", "VAE"),),
+                ),
+                NodeDefinition(
+                    class_type="TestLatentSink",
+                    output_types=("IMAGE",),
+                    input_types=(("latent", "LATENT"),),
+                ),
+            )
+        ),
+    )
+
+
+def _node(class_type: str, **inputs: object) -> dict[str, object]:
+    """Return a compact API prompt node."""
+
+    return {"class_type": class_type, "inputs": inputs}
 
 
 def _lora_prompt(
