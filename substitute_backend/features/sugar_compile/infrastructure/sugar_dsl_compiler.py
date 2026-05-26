@@ -68,13 +68,13 @@ class SugarDslWorkflowCompiler:
         """Compile Sugar script text through Sugar-DSL."""
 
         try:
-            from sugar.api.builder import (  # type: ignore[import-not-found]
+            from sugar.api.builder import (
                 build_comfy_artifacts_from_text,
             )
-            from sugar.compiler.errors import (  # type: ignore[import-not-found]
+            from sugar.compiler.errors import (
                 SugarCompilerError as SugarDslCompilerError,
             )
-            from sugar.runtime.live_definitions import (  # type: ignore[import-not-found]
+            from sugar.runtime.live_definitions import (
                 ComfyRegistryLiveNodeDefinitionProvider,
             )
         except ImportError as exc:
@@ -233,11 +233,11 @@ class BackendCubeArtifactResolver:
             )
 
         try:
-            from sugar.catalog.artifacts import (  # type: ignore[import-not-found]
+            from sugar.catalog.artifacts import (
                 CubeArtifactIdentity,
                 ResolvedCubeArtifact,
             )
-            from sugar.catalog.models import (  # type: ignore[import-not-found]
+            from sugar.catalog.models import (
                 validate_cube_document,
             )
         except ImportError as exc:
