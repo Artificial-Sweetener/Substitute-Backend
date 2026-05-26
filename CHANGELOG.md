@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.1.0...v1.2.0) (2026-05-26)
+
+
+### Features
+
+* **prompt-queue:** optimize duplicate resource streams ([372df6d](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/372df6dc8183404e64236f073ae4c4b88f04bde4))
+
 # [1.1.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.0.1...v1.1.0) (2026-05-26)
 
 
