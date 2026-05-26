@@ -1,3 +1,15 @@
+# [1.1.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.0.1...v1.1.0) (2026-05-26)
+
+
+### Bug Fixes
+
+* **ci:** require typed sugar-dsl release ([3d56832](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/3d5683271bdfff569b7372eeb14502e60e65f276))
+
+
+### Features
+
+* **backend:** add Sugar compile and dependency repair support ([f1b0d74](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/f1b0d74a2997925133d825c5c227ce9dff8f159d))
+
 ## [1.0.1](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.0.0...v1.0.1) (2026-05-22)
 
 
