@@ -193,6 +193,7 @@ def register_routes(
     routes.post("/substitute/v1/prompt/queue")(prompt_queue_handlers.queue_prompt)
     routes.post(SUGAR_COMPILE_ROUTE)(sugar_compile_handlers.compile_sugar)
     routes.get("/substitute/v1/models")(model_handlers.list_models)
+    routes.get("/substitute/v1/models/changes")(model_handlers.latest_model_changes)
     routes.get("/substitute/v1/models/by-hash/{sha256}")(model_handlers.lookup_model_by_hash)
     routes.post("/substitute/v1/models/downloads/civitai")(
         model_handlers.start_civitai_model_download

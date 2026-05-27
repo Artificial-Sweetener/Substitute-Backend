@@ -55,6 +55,7 @@ class ModelMetadataRouteHandlers:
     cancel_model_download_job: RouteHandler
     refresh_fingerprints: RouteHandler
     get_fingerprint_job: RouteHandler
+    latest_model_changes: RouteHandler
     get_preview: RouteHandler
 
 
@@ -251,6 +252,19 @@ def build_model_metadata_route_handlers(
             },
         )
 
+    async def latest_model_changes(request: web.Request) -> web.Response:
+        """Return the latest model catalog change for reconnect recovery."""
+
+        _ = request
+        latest_change = services.changes.latest_change
+        return web.json_response(
+            {
+                "schemaVersion": 1,
+                "revision": services.changes.revision,
+                "latestChange": (latest_change.to_payload() if latest_change is not None else None),
+            }
+        )
+
     return ModelMetadataRouteHandlers(
         capabilities=capabilities,
         list_models=list_models,
@@ -260,6 +274,7 @@ def build_model_metadata_route_handlers(
         cancel_model_download_job=cancel_model_download_job,
         refresh_fingerprints=refresh_fingerprints,
         get_fingerprint_job=get_fingerprint_job,
+        latest_model_changes=latest_model_changes,
         get_preview=get_preview,
     )
 

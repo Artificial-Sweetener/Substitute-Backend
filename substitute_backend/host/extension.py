@@ -113,11 +113,25 @@ from substitute_backend.features.model_metadata.application.hash_lookup_service 
 from substitute_backend.features.model_metadata.application.model_download_service import (
     ModelDownloadService,
 )
+from substitute_backend.features.model_metadata.application.model_folder_change_monitor import (
+    ModelFolderChangeMonitor,
+)
+from substitute_backend.features.model_metadata.application.model_folder_snapshot_service import (
+    ModelFolderSnapshotService,
+)
+from substitute_backend.features.model_metadata.application.node_model_dependency_index import (
+    NodeModelDependencyIndex,
+)
 from substitute_backend.features.model_metadata.application.preview_service import (
     PreviewService,
 )
 from substitute_backend.features.model_metadata.application.services import (
     ModelMetadataServices,
+)
+from substitute_backend.features.model_metadata.infrastructure import (
+    ComfyFolderCacheInvalidator,
+    ComfyNodeModelDependencyScanner,
+    PromptServerModelCatalogPublisher,
 )
 from substitute_backend.features.model_metadata.infrastructure.comfy_model_roots import (
     ComfyModelRootsProvider,
@@ -198,6 +212,7 @@ class BackendServices:
 def build_model_metadata_services(
     extension_root: Path,
     model_roots: ModelRootsProvider | None = None,
+    prompt_server: object | None = None,
 ) -> ModelMetadataServices:
     """Build application services for the model metadata feature."""
 
@@ -211,6 +226,8 @@ def build_model_metadata_services(
         fingerprint_cache=fingerprint_cache,
         worker=worker,
     )
+    node_dependency_index = _build_node_dependency_index()
+    snapshot_service = ModelFolderSnapshotService(roots)
     return ModelMetadataServices(
         capabilities=CapabilityService(model_roots=roots),
         catalog=CatalogService(
@@ -233,6 +250,19 @@ def build_model_metadata_services(
             fingerprint_cache=fingerprint_cache,
         ),
         previews=PreviewService(preview_store=preview_store),
+        changes=ModelFolderChangeMonitor(
+            model_roots=roots,
+            snapshot_service=snapshot_service,
+            publisher=PromptServerModelCatalogPublisher(
+                prompt_server=prompt_server or object(),
+                logger=get_logger("model_metadata.publisher"),
+            ),
+            node_class_resolver=node_dependency_index,
+            cache_invalidator=ComfyFolderCacheInvalidator(
+                logger=get_logger("model_metadata.folder_cache"),
+            ),
+            logger=get_logger("model_metadata.change_monitor"),
+        ),
     )
 
 
@@ -274,6 +304,24 @@ def build_environment_management_services(extension_root: Path) -> EnvironmentMa
             logger=get_logger("environment.restart"),
         ),
     )
+
+
+def _build_node_dependency_index() -> NodeModelDependencyIndex:
+    """Build model-folder node dependencies without breaking offline tests."""
+
+    logger = get_logger("model_metadata.node_dependencies")
+    try:
+        dependencies = ComfyNodeModelDependencyScanner(logger=logger).scan()
+    except ModuleNotFoundError as exc:
+        logger.debug(
+            "Comfy node dependency index unavailable outside host runtime",
+            extra={"error": repr(exc)},
+        )
+        dependencies = {}
+    except Exception:
+        logger.exception("Failed to build model-folder node dependency index")
+        dependencies = {}
+    return NodeModelDependencyIndex(dependencies)
 
 
 def build_cube_library_services(
@@ -458,7 +506,11 @@ def build_backend_services(
     diagnostics = diagnostics_from_environment(get_logger("diagnostics"))
     cube_library = build_cube_library_services(extension_root, diagnostics)
     return BackendServices(
-        model_metadata=build_model_metadata_services(extension_root, model_roots=model_roots),
+        model_metadata=build_model_metadata_services(
+            extension_root,
+            model_roots=model_roots,
+            prompt_server=prompt_server,
+        ),
         cube_library=cube_library,
         cube_library_change_monitor=build_cube_library_change_monitor(
             cube_library,
@@ -490,6 +542,7 @@ def register_extension(
     services.cube_outputs.registration.register()
     _schedule_cube_output_registration_retry(services.cube_outputs.registration)
     services.cube_library_change_monitor.start()
+    services.model_metadata.changes.start()
     return register_routes(prompt_server, services)
 
 

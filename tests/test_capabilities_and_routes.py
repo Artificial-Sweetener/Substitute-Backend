@@ -121,6 +121,7 @@ def test_register_routes_uses_expected_surface(tmp_path: Path) -> None:
         ("POST", "/substitute/v1/prompt/queue"),
         ("POST", "/substitute/v1/sugar/compile"),
         ("GET", "/substitute/v1/models"),
+        ("GET", "/substitute/v1/models/changes"),
         ("GET", "/substitute/v1/models/by-hash/{sha256}"),
         ("POST", "/substitute/v1/models/downloads/civitai"),
         ("GET", "/substitute/v1/models/downloads/jobs/{jobId}"),

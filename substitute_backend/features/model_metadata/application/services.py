@@ -24,6 +24,7 @@ from .catalog_service import CatalogService
 from .fingerprint_service import FingerprintService
 from .hash_lookup_service import HashLookupService
 from .model_download_service import ModelDownloadService
+from .model_folder_change_monitor import ModelFolderChangeMonitor
 from .preview_service import PreviewService
 
 
@@ -37,3 +38,4 @@ class ModelMetadataServices:
     hash_lookup: HashLookupService
     downloads: ModelDownloadService
     previews: PreviewService
+    changes: ModelFolderChangeMonitor

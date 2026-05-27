@@ -14,3 +14,13 @@
 #    You should have received a copy of the GNU Affero General Public License
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """Infrastructure adapters for model metadata."""
+
+from .comfy_folder_cache import ComfyFolderCacheInvalidator
+from .comfy_node_model_dependencies import ComfyNodeModelDependencyScanner
+from .prompt_server_model_catalog_publisher import PromptServerModelCatalogPublisher
+
+__all__ = [
+    "ComfyFolderCacheInvalidator",
+    "ComfyNodeModelDependencyScanner",
+    "PromptServerModelCatalogPublisher",
+]
