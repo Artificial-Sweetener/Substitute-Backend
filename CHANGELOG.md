@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.2.0...v1.3.0) (2026-05-27)
+
+
+### Features
+
+* **model-metadata:** publish model folder changes ([a7cb2fc](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/a7cb2fc9863f3fab5506c5c304cae22e90c05fa5))
+
 # [1.2.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.1.0...v1.2.0) (2026-05-26)
 
 
