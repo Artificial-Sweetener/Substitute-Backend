@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.3.0...v1.4.0) (2026-06-02)
+
+
+### Features
+
+* **visual-routing:** enrich Comfy image events ([7d11f33](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/7d11f33cc247759c31f8a4a62f9d54ca6233272e))
+
 # [1.3.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.2.0...v1.3.0) (2026-05-27)
 
 
