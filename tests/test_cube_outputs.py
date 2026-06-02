@@ -41,6 +41,13 @@ from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_observer
     SugarCubesHookResolutionStatus,
     SugarCubesObserverHookResolver,
 )
+from substitute_backend.features.prompt_queue.application.run_context_store import (
+    SubstituteRunContextStore,
+)
+from substitute_backend.features.prompt_queue.domain.run_context import (
+    SubstituteRunContext,
+    SubstituteSourceRoute,
+)
 
 
 class _PromptServer:
@@ -254,6 +261,105 @@ def test_observer_adapter_maps_sugarcubes_event_to_substitute_payload() -> None:
             "height": 8,
         }
     ]
+
+
+def test_observer_enriches_cube_output_with_substitute_context() -> None:
+    """Observer should publish v2 cube-output events to the run client id."""
+
+    prompt_server = _PromptServer()
+    publisher = PromptServerCubeOutputPublisher(
+        prompt_server=prompt_server,
+        logger=logging.getLogger("test.cube_outputs.publisher"),
+    )
+    run_context_store = SubstituteRunContextStore()
+    run_context_store.store(
+        prompt_id="prompt-1",
+        context=SubstituteRunContext(
+            workflow_id="wf-1",
+            generation_run_id="run-1",
+            client_id="client-run",
+            scene_key="scene-a",
+            sources={
+                "node-1": SubstituteSourceRoute(
+                    source_key="wf-1:node-1",
+                    source_label="Demo",
+                    cube_alias="Demo",
+                )
+            },
+        ),
+        executable_prompt={"node-1": {}},
+    )
+    observer = SubstituteCubeOutputObserver(
+        publisher=publisher,
+        logger=logging.getLogger("test.cube_outputs.observer"),
+        run_context_store=run_context_store,
+    )
+    sugar_event = types.SimpleNamespace(
+        version=1,
+        prompt_id="prompt-1",
+        node_id="node-1",
+        list_index=2,
+        cube_id="owner/repo/demo.cube",
+        default_alias="Demo",
+        instance_alias="Demo",
+        instance_id="instance-1",
+        media_kind="image",
+        value_type="torch.Tensor",
+        artifacts=(),
+    )
+
+    observer.on_cube_output(cast(Any, sugar_event))
+
+    assert prompt_server.sent[0][2] == "client-run"
+    payload = prompt_server.sent[0][1]
+    assert isinstance(payload, dict)
+    assert payload["version"] == 2
+    assert payload["substitute"] == {
+        "schemaVersion": 1,
+        "workflowId": "wf-1",
+        "generationRunId": "run-1",
+        "clientId": "client-run",
+        "sourceKey": "wf-1:node-1",
+        "sourceLabel": "Demo",
+        "sceneKey": "scene-a",
+    }
+
+
+def test_observer_skips_unresolved_cube_output_when_context_required(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Observer should not fabricate identity for unknown prompt/node outputs."""
+
+    prompt_server = _PromptServer()
+    observer = SubstituteCubeOutputObserver(
+        publisher=PromptServerCubeOutputPublisher(
+            prompt_server=prompt_server,
+            logger=logging.getLogger("test.cube_outputs.publisher"),
+        ),
+        logger=logging.getLogger("test.cube_outputs.observer.unresolved"),
+        run_context_store=SubstituteRunContextStore(),
+    )
+    sugar_event = types.SimpleNamespace(
+        version=1,
+        prompt_id="missing-prompt",
+        node_id="node-1",
+        list_index=0,
+        cube_id="owner/repo/demo.cube",
+        default_alias="Demo",
+        instance_alias="Demo",
+        instance_id="instance-1",
+        media_kind="image",
+        value_type="torch.Tensor",
+        artifacts=(),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        observer.on_cube_output(cast(Any, sugar_event))
+
+    assert prompt_server.sent == []
+    assert any(
+        getattr(record, "reason", None) == "unknown_prompt_context" for record in caplog.records
+    )
 
 
 def test_hook_resolver_reports_unavailable_when_sugarcubes_is_missing(

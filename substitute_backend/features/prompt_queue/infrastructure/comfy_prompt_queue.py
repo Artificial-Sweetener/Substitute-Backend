@@ -27,11 +27,17 @@ from typing import Protocol, runtime_checkable
 from substitute_backend.features.prompt_queue.application.graph_optimizer import (
     PromptGraphOptimizer,
 )
+from substitute_backend.features.prompt_queue.application.run_context_store import (
+    SubstituteRunContextStore,
+)
 from substitute_backend.features.prompt_queue.domain.graph import is_api_prompt
 from substitute_backend.features.prompt_queue.domain.optimization_report import (
     OptimizationReport,
 )
 from substitute_backend.features.prompt_queue.domain.queue_response import QueuePromptResult
+from substitute_backend.features.prompt_queue.domain.run_context import (
+    parse_substitute_run_context,
+)
 
 
 class PromptQueueLike(Protocol):
@@ -84,6 +90,7 @@ class ComfyPromptQueueAdapter:
         execution_module: ExecutionModuleLike,
         optimizer: PromptGraphOptimizer,
         logger: logging.Logger,
+        run_context_store: SubstituteRunContextStore | None = None,
         uuid_factory: Callable[[], uuid.UUID] = uuid.uuid4,
         time_source: Callable[[], float] = time.time,
     ) -> None:
@@ -93,6 +100,7 @@ class ComfyPromptQueueAdapter:
         self._execution = execution_module
         self._optimizer = optimizer
         self._logger = logger
+        self._run_context_store = run_context_store
         self._uuid_factory = uuid_factory
         self._time_source = time_source
 
@@ -138,6 +146,7 @@ class ComfyPromptQueueAdapter:
                 status=400,
             )
         extra_data = self._extra_data(json_data)
+        substitute_context = parse_substitute_run_context(extra_data.get("substitute"))
         client_id = json_data.get("client_id")
         if client_id is not None:
             extra_data["client_id"] = client_id
@@ -149,6 +158,12 @@ class ComfyPromptQueueAdapter:
         self._prompt_server.prompt_queue.put(
             (number, prompt_id, prompt_for_queue, extra_data, valid[2], sensitive)
         )
+        if substitute_context is not None and self._run_context_store is not None:
+            self._run_context_store.store(
+                prompt_id=prompt_id,
+                context=substitute_context,
+                executable_prompt=prompt_for_queue,
+            )
         return QueuePromptResult(
             payload={
                 "prompt_id": prompt_id,

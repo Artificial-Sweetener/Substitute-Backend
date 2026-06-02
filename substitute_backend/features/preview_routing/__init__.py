@@ -13,22 +13,10 @@
 #
 #    You should have received a copy of the GNU Affero General Public License
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-"""Application services for the prompt queue facade."""
+"""Preview metadata routing support for Substitute visual events."""
 
-from substitute_backend.features.prompt_queue.application.graph_optimizer import (
-    PromptGraphOptimizer,
+from substitute_backend.features.preview_routing.prompt_server_patch import (
+    PreviewMetadataEnrichmentInstaller,
 )
-from substitute_backend.features.prompt_queue.application.prompt_queue_service import (
-    PromptQueueService,
-)
-from substitute_backend.features.prompt_queue.application.run_context_store import (
-    SubstituteRunContextStore,
-)
-from substitute_backend.features.prompt_queue.application.services import PromptQueueServices
 
-__all__ = [
-    "PromptGraphOptimizer",
-    "PromptQueueService",
-    "PromptQueueServices",
-    "SubstituteRunContextStore",
-]
+__all__ = ["PreviewMetadataEnrichmentInstaller"]

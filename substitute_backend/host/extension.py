@@ -158,10 +158,14 @@ from substitute_backend.features.preview_assets.infrastructure import (
     ComfyVaeApproxPathProvider,
     HttpAssetDownloader,
 )
+from substitute_backend.features.preview_routing import (
+    PreviewMetadataEnrichmentInstaller,
+)
 from substitute_backend.features.prompt_queue.application import (
     PromptGraphOptimizer,
     PromptQueueService,
     PromptQueueServices,
+    SubstituteRunContextStore,
 )
 from substitute_backend.features.prompt_queue.infrastructure.comfy_node_definitions import (
     load_comfy_node_definitions,
@@ -205,6 +209,7 @@ class BackendServices:
     preview_assets: PreviewAssetServices
     cube_outputs: CubeOutputServices
     prompt_queue: PromptQueueServices
+    preview_metadata_enrichment: PreviewMetadataEnrichmentInstaller
     sugar_compile: SugarCompileServices
     diagnostics: DiagnosticLogger
 
@@ -412,6 +417,7 @@ def build_download_services(prompt_server: object | None = None) -> DownloadServ
 def build_cube_output_services(
     extension_root: Path,
     prompt_server: object | None = None,
+    run_context_store: SubstituteRunContextStore | None = None,
 ) -> CubeOutputServices:
     """Build services for SugarCubes cube-output websocket publishing."""
 
@@ -422,6 +428,7 @@ def build_cube_output_services(
     observer = SubstituteCubeOutputObserver(
         publisher=publisher,
         logger=get_logger("cube_outputs.observer"),
+        run_context_store=run_context_store,
     )
     hook_resolver = SugarCubesObserverHookResolver(
         extension_root=extension_root,
@@ -458,6 +465,7 @@ def build_prompt_queue_services(
     extension_root: Path,
     prompt_server: object | None = None,
     execution_module: ExecutionModuleLike | None = None,
+    run_context_store: SubstituteRunContextStore | None = None,
 ) -> PromptQueueServices:
     """Build services for backend-owned prompt queueing."""
 
@@ -476,6 +484,7 @@ def build_prompt_queue_services(
             node_definitions=load_comfy_node_definitions(optimizer_logger),
         ),
         logger=get_logger("prompt_queue.comfy"),
+        run_context_store=run_context_store,
     )
     return PromptQueueServices(queue=PromptQueueService(adapter))
 
@@ -505,6 +514,7 @@ def build_backend_services(
 
     diagnostics = diagnostics_from_environment(get_logger("diagnostics"))
     cube_library = build_cube_library_services(extension_root, diagnostics)
+    run_context_store = SubstituteRunContextStore()
     return BackendServices(
         model_metadata=build_model_metadata_services(
             extension_root,
@@ -521,8 +531,21 @@ def build_backend_services(
         model_loading=build_model_loading_services(prompt_server=prompt_server),
         downloads=build_download_services(prompt_server=prompt_server),
         preview_assets=preview_assets or build_preview_asset_services(),
-        cube_outputs=build_cube_output_services(extension_root, prompt_server=prompt_server),
-        prompt_queue=build_prompt_queue_services(extension_root, prompt_server=prompt_server),
+        cube_outputs=build_cube_output_services(
+            extension_root,
+            prompt_server=prompt_server,
+            run_context_store=run_context_store,
+        ),
+        prompt_queue=build_prompt_queue_services(
+            extension_root,
+            prompt_server=prompt_server,
+            run_context_store=run_context_store,
+        ),
+        preview_metadata_enrichment=PreviewMetadataEnrichmentInstaller(
+            prompt_server=prompt_server or object(),
+            run_context_store=run_context_store,
+            logger=get_logger("preview_routing.metadata"),
+        ),
         sugar_compile=build_sugar_compile_services(cube_library),
         diagnostics=diagnostics,
     )
@@ -539,6 +562,7 @@ def register_extension(
     services.model_loading.patch_installer.install()
     services.model_loading.log_observer.install()
     services.downloads.patch_installer.install()
+    services.preview_metadata_enrichment.install()
     services.cube_outputs.registration.register()
     _schedule_cube_output_registration_retry(services.cube_outputs.registration)
     services.cube_library_change_monitor.start()

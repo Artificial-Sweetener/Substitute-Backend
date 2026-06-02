@@ -296,6 +296,8 @@ def _build_capabilities_handler(
             feature_list.append("download-telemetry")
         if "prompt-queue-facade" not in feature_list:
             feature_list.append("prompt-queue-facade")
+        if "visual-routing" not in feature_list:
+            feature_list.append("visual-routing")
         sugar_compile_capabilities = services.sugar_compile.compile.capabilities()
         if sugar_compile_capabilities.available and "sugar-compile" not in feature_list:
             feature_list.append("sugar-compile")
@@ -329,6 +331,13 @@ def _build_capabilities_handler(
             "optimizationSupported": True,
             "optimizationReportSupported": True,
             "debugDumpSupported": False,
+        }
+        payload["visualRouting"] = {
+            "schemaVersion": 1,
+            "finalOutputIdentityRequired": True,
+            "previewMetadataIdentitySupported": True,
+            "eventType": "substitute_cube_output",
+            "previewMetadataKey": "substitute",
         }
         payload["sugarCompile"] = sugar_compile_capabilities.to_payload()
         return web.json_response(payload)

@@ -54,7 +54,7 @@ class PromptServerCubeOutputPublisher:
         if not callable(send_sync):
             self._logger.debug("Cube-output event skipped; PromptServer has no send_sync")
             return
-        client_id = getattr(self._prompt_server, "client_id", None)
+        client_id = event.client_id or getattr(self._prompt_server, "client_id", None)
         if client_id is not None and not isinstance(client_id, str):
             client_id = None
         try:

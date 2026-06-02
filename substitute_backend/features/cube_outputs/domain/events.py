@@ -73,6 +73,8 @@ class CubeOutputWebsocketEvent:
     media_kind: MediaKind
     value_type: str
     artifacts: tuple[CubeOutputArtifactEvent, ...]
+    substitute: JsonObject | None = None
+    client_id: str | None = None
     version: int = 1
 
     def to_payload(self) -> JsonObject:
@@ -91,4 +93,7 @@ class CubeOutputWebsocketEvent:
             "value_type": self.value_type,
             "artifacts": [artifact.to_payload() for artifact in self.artifacts],
         }
+        if self.substitute is not None:
+            payload["version"] = 2
+            payload["substitute"] = self.substitute
         return payload

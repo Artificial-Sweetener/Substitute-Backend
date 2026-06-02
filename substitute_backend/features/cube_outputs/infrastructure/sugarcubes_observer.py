@@ -33,6 +33,9 @@ from substitute_backend.features.cube_outputs.domain.events import MediaKind
 from substitute_backend.features.cube_outputs.infrastructure.prompt_server_publisher import (
     PromptServerCubeOutputPublisher,
 )
+from substitute_backend.features.prompt_queue.application.run_context_store import (
+    SubstituteRunContextStore,
+)
 
 SUGARCUBES_EXTENSION_DIRECTORY = "SugarCubes"
 SUPPORTED_OBSERVER_API_VERSION = 1
@@ -232,17 +235,33 @@ class SubstituteCubeOutputObserver:
         *,
         publisher: PromptServerCubeOutputPublisher,
         logger: logging.Logger,
+        run_context_store: SubstituteRunContextStore | None = None,
     ) -> None:
         """Initialize the observer with its websocket publisher."""
 
         self._publisher = publisher
         self._logger = logger
+        self._run_context_store = run_context_store
 
     def on_cube_output(self, event: SugarCubesEventLike) -> None:
         """Publish one SugarCubes cube-output event for Substitute."""
 
         try:
-            self._publisher.publish(_map_sugarcubes_event(event))
+            websocket_event = _map_sugarcubes_event(event)
+            if self._run_context_store is not None:
+                enriched_event = self._enrich_event(websocket_event)
+                if enriched_event is None:
+                    self._logger.warning(
+                        "Skipping cube-output event without Substitute run context",
+                        extra={
+                            "prompt_id": getattr(event, "prompt_id", None),
+                            "node_id": getattr(event, "node_id", None),
+                            "reason": "unknown_prompt_context",
+                        },
+                    )
+                    return
+                websocket_event = enriched_event
+            self._publisher.publish(websocket_event)
         except Exception:
             self._logger.exception(
                 "Failed to handle SugarCubes cube-output event",
@@ -252,6 +271,37 @@ class SubstituteCubeOutputObserver:
                     "cube_id": getattr(event, "cube_id", None),
                 },
             )
+
+    def _enrich_event(
+        self,
+        event: CubeOutputWebsocketEvent,
+    ) -> CubeOutputWebsocketEvent | None:
+        """Return a v2 identity-bearing event for known prompt context."""
+
+        if self._run_context_store is None:
+            return event
+        resolved = self._run_context_store.resolve_source(
+            prompt_id=event.prompt_id,
+            node_id=event.node_id,
+        )
+        if resolved is None:
+            return None
+        context, source = resolved
+        return CubeOutputWebsocketEvent(
+            prompt_id=event.prompt_id,
+            node_id=event.node_id,
+            list_index=event.list_index,
+            cube_id=event.cube_id,
+            default_alias=event.default_alias,
+            instance_alias=event.instance_alias,
+            instance_id=event.instance_id,
+            media_kind=event.media_kind,
+            value_type=event.value_type,
+            artifacts=event.artifacts,
+            substitute=context.substitute_payload_for_source(source),
+            client_id=context.client_id,
+            version=2,
+        )
 
 
 class SugarCubesCubeOutputRegistration:

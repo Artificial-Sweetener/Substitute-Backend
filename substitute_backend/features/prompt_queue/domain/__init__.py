@@ -27,6 +27,11 @@ from substitute_backend.features.prompt_queue.domain.optimization_report import 
     OptimizationReport,
 )
 from substitute_backend.features.prompt_queue.domain.queue_response import QueuePromptResult
+from substitute_backend.features.prompt_queue.domain.run_context import (
+    SubstituteRunContext,
+    SubstituteSourceRoute,
+    parse_substitute_run_context,
+)
 
 __all__ = [
     "ApiPrompt",
@@ -35,6 +40,9 @@ __all__ = [
     "OptimizationReplacement",
     "OptimizationReport",
     "QueuePromptResult",
+    "SubstituteRunContext",
+    "SubstituteSourceRoute",
     "is_api_prompt",
     "is_comfy_node_link",
+    "parse_substitute_run_context",
 ]

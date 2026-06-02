@@ -27,8 +27,15 @@ from substitute_backend.features.prompt_queue.application.node_definitions impor
     NodeDefinition,
     NodeDefinitionProvider,
 )
+from substitute_backend.features.prompt_queue.application.run_context_store import (
+    SubstituteRunContextStore,
+)
 from substitute_backend.features.prompt_queue.domain.graph import ApiPrompt
 from substitute_backend.features.prompt_queue.domain.optimization_report import OptimizationReport
+from substitute_backend.features.prompt_queue.domain.run_context import (
+    SubstituteRunContext,
+    SubstituteSourceRoute,
+)
 from substitute_backend.features.prompt_queue.infrastructure.comfy_prompt_queue import (
     ComfyPromptQueueAdapter,
     ExecutionModuleLike,
@@ -312,6 +319,103 @@ def test_comfy_queue_adapter_runs_hooks_and_replacements_before_optimization() -
     assert "auth_token_comfy_org" not in queued_extra_data
     assert queued_sensitive == {"auth_token_comfy_org": "secret-token"}
     assert prompt_server.number == 11.0
+
+
+def test_comfy_queue_adapter_stores_substitute_run_context_by_prompt_id() -> None:
+    """Queue adapter should retain visual routing context for the returned prompt id."""
+
+    events: list[str] = []
+    prompt_server = _PromptServer(events)
+    run_context_store = SubstituteRunContextStore(time_source=lambda: 123.0)
+    adapter = ComfyPromptQueueAdapter(
+        prompt_server=cast("PromptServerRuntimeLike", prompt_server),
+        execution_module=cast("ExecutionModuleLike", _Execution(events)),
+        optimizer=PromptGraphOptimizer(logger=logging.getLogger("tests.prompt_queue.optimizer")),
+        logger=logging.getLogger("tests.prompt_queue.adapter"),
+        run_context_store=run_context_store,
+        uuid_factory=lambda: uuid.UUID("12345678-1234-5678-1234-567812345678"),
+        time_source=lambda: 123.456,
+    )
+
+    asyncio.run(
+        adapter.queue_prompt(
+            {
+                "prompt": _lora_prompt("cat", "dog"),
+                "client_id": "client-1",
+                "extra_data": {
+                    "substitute": {
+                        "schemaVersion": 1,
+                        "workflowId": "wf-1",
+                        "generationRunId": "run-1",
+                        "clientId": "client-1",
+                        "sources": {
+                            "5": {
+                                "sourceKey": "wf-1:5",
+                                "sourceLabel": "CubeA",
+                                "cubeAlias": "CubeA",
+                            }
+                        },
+                    }
+                },
+            }
+        )
+    )
+
+    context = run_context_store.resolve("12345678-1234-5678-1234-567812345678")
+    assert context is not None
+    assert context.workflow_id == "wf-1"
+    assert context.generation_run_id == "run-1"
+    assert context.client_id == "client-1"
+    assert context.sources["5"].source_key == "wf-1:5"
+
+
+def test_substitute_run_context_store_prunes_expired_and_bounded_contexts() -> None:
+    """Run-context store should stay bounded and drop expired prompt state."""
+
+    now = 100.0
+
+    def time_source() -> float:
+        return now
+
+    store = SubstituteRunContextStore(
+        max_contexts=1,
+        expiry_seconds=10.0,
+        time_source=time_source,
+    )
+    first_context = SubstituteRunContext(
+        workflow_id="wf-1",
+        generation_run_id="run-1",
+        client_id="client-1",
+        sources={
+            "node-1": SubstituteSourceRoute(
+                source_key="wf-1:node-1",
+                source_label="Node 1",
+                cube_alias="Node 1",
+            )
+        },
+    )
+    second_context = SubstituteRunContext(
+        workflow_id="wf-2",
+        generation_run_id="run-2",
+        client_id="client-2",
+        sources={
+            "node-2": SubstituteSourceRoute(
+                source_key="wf-2:node-2",
+                source_label="Node 2",
+                cube_alias="Node 2",
+            )
+        },
+    )
+
+    store.store(prompt_id="prompt-1", context=first_context, executable_prompt={})
+    now = 101.0
+    store.store(prompt_id="prompt-2", context=second_context, executable_prompt={})
+
+    assert store.resolve("prompt-1") is None
+    assert store.resolve("prompt-2") is second_context
+
+    now = 112.0
+    assert store.resolve("prompt-2") is None
 
 
 def test_comfy_queue_adapter_preserves_comfy_validation_failure_shape() -> None:
