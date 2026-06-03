@@ -30,6 +30,9 @@ class CubeLibraryGateway(Protocol):
     def status(self) -> JsonObject:
         """Return Cube Library availability for the active target."""
 
+    def capabilities(self) -> JsonObject:
+        """Return dynamic Cube Library feature capabilities."""
+
     def catalog(
         self,
         *,
@@ -122,6 +125,9 @@ class CubeLibraryGateway(Protocol):
     ) -> JsonObject:
         """Repair approved target library dependencies."""
 
+    def sync_and_check(self, payload: dict[str, object]) -> JsonObject:
+        """Run shared pack sync and dependency readiness orchestration."""
+
 
 @dataclass(frozen=True)
 class CubeLibraryService:
@@ -133,6 +139,11 @@ class CubeLibraryService:
         """Return Cube Library availability for the active target."""
 
         return self.gateway.status()
+
+    def capabilities(self) -> JsonObject:
+        """Return dynamic Cube Library feature capabilities."""
+
+        return self.gateway.capabilities()
 
     def catalog(
         self,
@@ -284,6 +295,11 @@ class CubeLibraryService:
             approved_node_ids=approved_node_ids,
             sync_enabled_repos=sync_enabled_repos,
         )
+
+    def sync_and_check(self, payload: dict[str, object]) -> JsonObject:
+        """Run shared pack sync and dependency readiness orchestration."""
+
+        return self.gateway.sync_and_check(payload)
 
 
 @dataclass(frozen=True)

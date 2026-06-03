@@ -145,6 +145,7 @@ def test_register_routes_uses_expected_surface(tmp_path: Path) -> None:
         ("GET", "/substitute/v1/cube-library/readiness"),
         ("GET", "/substitute/v1/cube-library/dependencies/readiness"),
         ("POST", "/substitute/v1/cube-library/dependencies/repair"),
+        ("POST", "/substitute/v1/cube-library/sync-and-check"),
         ("GET", "/substitute/v1/environment/capabilities"),
         ("GET", "/substitute/v1/environment/status"),
         ("GET", "/substitute/v1/environment/packages"),
@@ -192,12 +193,17 @@ def test_capabilities_payload_advertises_preview_assets(tmp_path: Path) -> None:
         assert "sugar-compile" in payload["features"]
         assert payload["cubeLibrary"] == {
             "schemaVersion": 1,
-            "catalogSupported": True,
-            "artifactLoadSupported": True,
+            "available": False,
+            "unavailableReason": "SugarCubes is not available on this target.",
+            "sugarCubesVersion": "",
+            "catalogSupported": False,
+            "artifactLoadSupported": False,
             "workflowCompileSupported": False,
-            "packManagementSupported": True,
-            "dependencyReadinessSupported": True,
-            "dependencyRepairSupported": True,
+            "packManagementSupported": False,
+            "dependencyReadinessSupported": False,
+            "dependencyRepairSupported": False,
+            "versionedDependencyReadinessSupported": False,
+            "syncDependencyOrchestrationSupported": False,
         }
         assert payload["previewAssets"] == {
             "schemaVersion": 1,

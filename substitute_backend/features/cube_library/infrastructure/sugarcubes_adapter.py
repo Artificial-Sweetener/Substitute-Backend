@@ -27,6 +27,7 @@ from typing import Any, cast
 from substitute_backend.api.errors import BackendHttpError
 from substitute_backend.api.serialization import JsonObject, require_json_object
 from substitute_backend.features.cube_library.application import public_icon_descriptor
+from substitute_backend.features.cube_library.domain import CubeLibraryCapabilities
 from substitute_backend.infrastructure.diagnostics import DiagnosticContext, DiagnosticLogger
 
 SugarCubesServicesFactory = Callable[[Path], Any]
@@ -91,6 +92,35 @@ class SugarCubesLibraryAdapter:
                 "readinessSupported": False,
                 "errors": [{"code": exc.code, "message": exc.message}],
             }
+
+    def capabilities(self) -> JsonObject:
+        """Return dynamically discovered SugarCubes-backed Cube Library support."""
+
+        status = self.status()
+        available = bool(status.get("available"))
+        errors = status.get("errors")
+        unavailable_reason = ""
+        if isinstance(errors, list) and errors:
+            first_error = errors[0]
+            if isinstance(first_error, Mapping):
+                message = first_error.get("message")
+                unavailable_reason = message if isinstance(message, str) else ""
+        capabilities = CubeLibraryCapabilities(
+            available=available,
+            unavailable_reason="" if available else unavailable_reason,
+            sugar_cubes_version=_read_text(status.get("sugarCubesVersion")),
+            catalog_supported=available and bool(status.get("catalogRevision") is not None),
+            artifact_load_supported=available,
+            pack_management_supported=available and bool(status.get("packManagementSupported")),
+            dependency_readiness_supported=available
+            and bool(status.get("dependencyReadinessSupported")),
+            dependency_repair_supported=available and bool(status.get("dependencyRepairSupported")),
+            versioned_dependency_readiness_supported=available
+            and bool(status.get("versionedDependencyReadinessSupported")),
+            sync_dependency_orchestration_supported=available
+            and bool(status.get("syncDependencyOrchestrationSupported")),
+        )
+        return capabilities.to_payload()
 
     def catalog(
         self,
@@ -339,6 +369,11 @@ class SugarCubesLibraryAdapter:
                 sync_enabled_repos=sync_enabled_repos,
             )
         )
+
+    def sync_and_check(self, payload: Mapping[str, object]) -> JsonObject:
+        """Forward shared sync/dependency orchestration to SugarCubes."""
+
+        return self._call(lambda: self._dependencies().sync_and_check(payload))
 
     def _rewrite_loaded_icon_descriptor(
         self,

@@ -31,7 +31,6 @@ from substitute_backend.features.cube_library.api.routes import (
 from substitute_backend.features.cube_library.application.services import (
     CubeLibraryServices,
 )
-from substitute_backend.features.cube_library.domain import CubeLibraryCapabilities
 from substitute_backend.features.cube_outputs.application import CubeOutputServices
 from substitute_backend.features.downloads.application import DownloadServices
 from substitute_backend.features.environment_management.api.routes import (
@@ -229,6 +228,7 @@ def register_routes(
     routes.post("/substitute/v1/cube-library/dependencies/repair")(
         cube_library_handlers.repair_dependencies
     )
+    routes.post("/substitute/v1/cube-library/sync-and-check")(cube_library_handlers.sync_and_check)
     routes.get("/substitute/v1/environment/capabilities")(environment_handlers.capabilities)
     routes.get("/substitute/v1/environment/status")(environment_handlers.status)
     routes.get("/substitute/v1/environment/packages")(environment_handlers.list_packages)
@@ -303,7 +303,7 @@ def _build_capabilities_handler(
             feature_list.append("sugar-compile")
         feature_payload: list[JsonValue] = list(feature_list)
         payload["features"] = feature_payload
-        payload["cubeLibrary"] = CubeLibraryCapabilities().to_payload()
+        payload["cubeLibrary"] = services.cube_library.library.capabilities()
         payload["environmentManagement"] = (
             services.environment.environment.get_capabilities().to_payload()
         )

@@ -27,22 +27,34 @@ class CubeLibraryCapabilities:
     """Describe Cube Library support in the active target backend."""
 
     schema_version: int = 1
+    available: bool = True
+    unavailable_reason: str = ""
+    sugar_cubes_version: str = ""
     catalog_supported: bool = True
     artifact_load_supported: bool = True
     workflow_compile_supported: bool = False
     pack_management_supported: bool = True
     dependency_readiness_supported: bool = True
     dependency_repair_supported: bool = True
+    versioned_dependency_readiness_supported: bool = False
+    sync_dependency_orchestration_supported: bool = False
 
     def to_payload(self) -> JsonObject:
         """Return the public capability payload."""
 
         return {
             "schemaVersion": self.schema_version,
+            "available": self.available,
+            "unavailableReason": self.unavailable_reason,
+            "sugarCubesVersion": self.sugar_cubes_version,
             "catalogSupported": self.catalog_supported,
             "artifactLoadSupported": self.artifact_load_supported,
             "workflowCompileSupported": self.workflow_compile_supported,
             "packManagementSupported": self.pack_management_supported,
             "dependencyReadinessSupported": self.dependency_readiness_supported,
             "dependencyRepairSupported": self.dependency_repair_supported,
+            "versionedDependencyReadinessSupported": (
+                self.versioned_dependency_readiness_supported
+            ),
+            "syncDependencyOrchestrationSupported": (self.sync_dependency_orchestration_supported),
         }

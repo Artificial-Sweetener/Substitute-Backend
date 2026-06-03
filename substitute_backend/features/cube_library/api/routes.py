@@ -55,6 +55,7 @@ class CubeLibraryRouteHandlers:
     readiness: RouteHandler
     dependency_readiness: RouteHandler
     repair_dependencies: RouteHandler
+    sync_and_check: RouteHandler
 
 
 def build_cube_library_route_handlers(
@@ -380,6 +381,15 @@ def build_cube_library_route_handlers(
         except BackendHttpError as exc:
             return json_error(exc)
 
+    async def sync_and_check(request: web.Request) -> web.Response:
+        """Run shared pack sync and dependency readiness orchestration."""
+
+        try:
+            body = await _json_object_body(request)
+            return web.json_response(services.library.sync_and_check(body))
+        except BackendHttpError as exc:
+            return json_error(exc)
+
     return CubeLibraryRouteHandlers(
         status=status,
         catalog=catalog,
@@ -397,6 +407,7 @@ def build_cube_library_route_handlers(
         readiness=readiness,
         dependency_readiness=dependency_readiness,
         repair_dependencies=repair_dependencies,
+        sync_and_check=sync_and_check,
     )
 
 

@@ -121,6 +121,11 @@ class RecordingCubeLibraryGateway:
 
         return {"schemaVersion": 1, "available": True}
 
+    def capabilities(self) -> JsonObject:
+        """Return available Cube Library capabilities."""
+
+        return {"schemaVersion": 1, "available": True}
+
     def catalog(
         self,
         *,
@@ -252,6 +257,12 @@ class RecordingCubeLibraryGateway:
         """Return repair result."""
 
         _ = baseline_only, approved_node_ids, sync_enabled_repos
+        return {"schemaVersion": 1, "restartRequired": False}
+
+    def sync_and_check(self, payload: dict[str, object]) -> JsonObject:
+        """Return a no-op sync/check result."""
+
+        _ = payload
         return {"schemaVersion": 1, "restartRequired": False}
 
     def _artifact(self, cube_id: str, version: str) -> JsonObject:

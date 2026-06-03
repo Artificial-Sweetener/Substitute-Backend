@@ -92,6 +92,12 @@ class RecordingGateway:
         self.calls.append(("status", {}))
         return {"schemaVersion": 1, "available": True}
 
+    def capabilities(self) -> JsonObject:
+        """Return dynamic capability response."""
+
+        self.calls.append(("capabilities", {}))
+        return {"schemaVersion": 1, "available": True}
+
     def catalog(
         self,
         *,
@@ -289,6 +295,12 @@ class RecordingGateway:
             )
         )
         return {"schemaVersion": 1, "restartRequired": True}
+
+    def sync_and_check(self, payload: dict[str, object]) -> JsonObject:
+        """Return sync-and-check response."""
+
+        self.calls.append(("sync_and_check", {"payload": payload}))
+        return {"schemaVersion": 1, "restartRequired": False}
 
 
 def _handlers(gateway: RecordingGateway) -> CubeLibraryRouteHandlers:
@@ -713,6 +725,37 @@ def test_dependency_routes_delegate_to_gateway() -> None:
                     "sync_enabled_repos": True,
                 },
             ),
+        ]
+
+    asyncio.run(run())
+
+
+def test_sync_and_check_route_delegates_to_gateway() -> None:
+    """Shared sync/check route should forward the orchestration payload."""
+
+    async def run() -> None:
+        gateway = RecordingGateway()
+        response = await _handlers(gateway).sync_and_check(
+            _request(
+                body={
+                    "sync": {"mode": "all"},
+                    "dependencyPolicy": {"includeVersions": True},
+                }
+            )
+        )
+
+        assert response.status == 200
+        assert _payload(response)["schemaVersion"] == 1
+        assert gateway.calls == [
+            (
+                "sync_and_check",
+                {
+                    "payload": {
+                        "sync": {"mode": "all"},
+                        "dependencyPolicy": {"includeVersions": True},
+                    }
+                },
+            )
         ]
 
     asyncio.run(run())
