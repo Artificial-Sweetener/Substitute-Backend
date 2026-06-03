@@ -21,6 +21,7 @@ import copy
 import importlib.util
 import logging
 from collections.abc import Mapping
+from importlib import metadata
 from pathlib import Path
 from typing import Any, cast
 
@@ -63,6 +64,14 @@ class SugarDslWorkflowCompiler:
         """Return the setup message for a missing Sugar-DSL install."""
 
         return _UNAVAILABLE_REASON
+
+    def sugar_dsl_version(self) -> str:
+        """Return the installed Sugar-DSL package version or an empty string."""
+
+        try:
+            return metadata.version("sugar-dsl")
+        except metadata.PackageNotFoundError:
+            return ""
 
     def compile(self, *, script_text: str, output_dir: Path) -> SugarCompileResult:
         """Compile Sugar script text through Sugar-DSL."""

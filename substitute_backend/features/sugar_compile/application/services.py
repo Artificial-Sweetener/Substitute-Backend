@@ -41,6 +41,9 @@ class SugarWorkflowCompiler(Protocol):
     def unavailable_reason(self) -> str:
         """Return a setup-oriented reason when Sugar-DSL is unavailable."""
 
+    def sugar_dsl_version(self) -> str:
+        """Return the installed Sugar-DSL package version or an empty string."""
+
     def compile(self, *, script_text: str, output_dir: Path) -> SugarCompileResult:
         """Compile Sugar text into Comfy artifacts."""
 
@@ -56,7 +59,11 @@ class SugarCompileService:
         """Return the backend capability payload for Sugar compilation."""
 
         if self.compiler.is_available():
-            return SugarCompileCapabilities(available=True, live_node_definitions=True)
+            return SugarCompileCapabilities(
+                available=True,
+                live_node_definitions=True,
+                sugar_dsl_version=self.compiler.sugar_dsl_version(),
+            )
         return SugarCompileCapabilities(
             available=False,
             unavailable_reason=self.compiler.unavailable_reason(),

@@ -20,6 +20,7 @@ import importlib.util
 import json
 import sys
 from collections.abc import Awaitable, Callable
+from importlib import metadata
 from pathlib import Path
 from typing import TypeVar, cast
 
@@ -165,8 +166,19 @@ def test_register_routes_uses_expected_surface(tmp_path: Path) -> None:
     ]
 
 
-def test_capabilities_payload_advertises_preview_assets(tmp_path: Path) -> None:
+def test_capabilities_payload_advertises_preview_assets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Top-level capabilities should expose preview asset preparation support."""
+
+    def installed_version(name: str) -> str:
+        """Return deterministic package metadata for capabilities."""
+
+        _ = name
+        return "0.8.1"
+
+    monkeypatch.setattr(metadata, "version", installed_version)
 
     async def run_capabilities() -> None:
         provider = StaticModelRootsProvider({"loras": (tmp_path,)}, {".safetensors"})
@@ -221,6 +233,7 @@ def test_capabilities_payload_advertises_preview_assets(tmp_path: Path) -> None:
             "available": True,
             "compileRoute": "/substitute/v1/sugar/compile",
             "liveNodeDefinitions": True,
+            "sugarDslVersion": "0.8.1",
         }
 
     asyncio.run(run_capabilities())

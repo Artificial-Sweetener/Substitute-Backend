@@ -132,6 +132,7 @@ class SugarCompileCapabilities:
     available: bool
     unavailable_reason: str = ""
     live_node_definitions: bool = False
+    sugar_dsl_version: str = ""
     schema_version: int = SUGAR_COMPILE_SCHEMA_VERSION
     compile_route: str = SUGAR_COMPILE_ROUTE
 
@@ -145,6 +146,7 @@ class SugarCompileCapabilities:
         if self.available:
             payload["compileRoute"] = self.compile_route
             payload["liveNodeDefinitions"] = self.live_node_definitions
+            payload["sugarDslVersion"] = self.sugar_dsl_version
         else:
             payload["unavailableReason"] = self.unavailable_reason
         return payload

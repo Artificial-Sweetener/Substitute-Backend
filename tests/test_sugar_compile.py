@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Mapping
+from importlib import metadata
 from pathlib import Path
 from typing import Any, cast
 
@@ -48,6 +49,7 @@ from substitute_backend.features.sugar_compile.domain import (
 )
 from substitute_backend.features.sugar_compile.infrastructure import (
     BackendCubeArtifactResolver,
+    SugarDslWorkflowCompiler,
 )
 from substitute_backend.infrastructure.logging import get_logger
 
@@ -85,6 +87,11 @@ class RecordingCompiler:
         """Return a deterministic unavailable message."""
 
         return "Sugar-DSL is not installed in the ComfyUI environment."
+
+    def sugar_dsl_version(self) -> str:
+        """Return a deterministic Sugar-DSL version."""
+
+        return "0.8.1"
 
     def compile(self, *, script_text: str, output_dir: Path) -> SugarCompileResult:
         """Record the compile request and return a wrapped artifact payload."""
@@ -396,6 +403,62 @@ def test_compile_route_returns_wrapped_prompt_and_workflow() -> None:
         assert compiler.calls == [('use "Owner/Repo/demo.cube" as demo', Path("E:\\outputs"))]
 
     asyncio.run(run())
+
+
+def test_compile_service_capabilities_include_sugar_dsl_version() -> None:
+    """Sugar compile capabilities should expose the Backend-owned Sugar-DSL version."""
+
+    service = SugarCompileService(
+        compiler=RecordingCompiler(),
+        logger=logging.getLogger("tests.sugar_compile.service"),
+    )
+
+    assert service.capabilities().to_payload() == {
+        "schemaVersion": 1,
+        "available": True,
+        "compileRoute": "/substitute/v1/sugar/compile",
+        "liveNodeDefinitions": True,
+        "sugarDslVersion": "0.8.1",
+    }
+
+
+def test_sugar_dsl_compiler_reads_installed_distribution_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sugar-DSL infrastructure adapter should resolve installed package metadata."""
+
+    def installed_version(name: str) -> str:
+        """Return deterministic Sugar-DSL metadata."""
+
+        _ = name
+        return "0.9.2"
+
+    monkeypatch.setattr(metadata, "version", installed_version)
+    compiler = SugarDslWorkflowCompiler(
+        cube_library=CubeLibraryService(gateway=RecordingCubeLibraryGateway()),
+        logger=get_logger("tests.sugar_compile.compiler"),
+    )
+
+    assert compiler.sugar_dsl_version() == "0.9.2"
+
+
+def test_sugar_dsl_compiler_allows_missing_distribution_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing Sugar-DSL package metadata should not disable compile capability."""
+
+    def missing_version(name: str) -> str:
+        """Raise the package metadata missing error."""
+
+        raise metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(metadata, "version", missing_version)
+    compiler = SugarDslWorkflowCompiler(
+        cube_library=CubeLibraryService(gateway=RecordingCubeLibraryGateway()),
+        logger=get_logger("tests.sugar_compile.compiler"),
+    )
+
+    assert compiler.sugar_dsl_version() == ""
 
 
 def test_compile_service_maps_unavailable_errors() -> None:
