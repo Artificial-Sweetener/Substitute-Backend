@@ -1,3 +1,11 @@
+# [1.5.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.4.0...v1.5.0) (2026-06-04)
+
+
+### Features
+
+* **capabilities:** expose sugar dsl version ([35909cd](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/35909cd9ebe0ca7112d9fb6b2ebd5026fe80b9f7))
+* **cube-library:** expose SugarCubes sync capabilities ([d3a337a](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/d3a337a7fd81b4db852a26287f655599e22978dd))
+
 # [1.4.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.3.0...v1.4.0) (2026-06-02)
 
 
