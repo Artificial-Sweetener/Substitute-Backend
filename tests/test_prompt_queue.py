@@ -27,6 +27,11 @@ from substitute_backend.features.prompt_queue.application.node_definitions impor
     NodeDefinition,
     NodeDefinitionProvider,
 )
+from substitute_backend.features.prompt_queue.application.resource_policy import (
+    PromptTypeClass,
+    ResourceOptimizationPolicy,
+    normalized_type_tokens,
+)
 from substitute_backend.features.prompt_queue.application.run_context_store import (
     SubstituteRunContextStore,
 )
@@ -87,6 +92,48 @@ def test_graph_optimizer_bypasses_empty_lora_scheduler_before_deduping_shared_pr
     assert [replacement.kind for replacement in report.replacements].count(
         "empty_lora_passthrough"
     ) == 3
+
+
+def test_graph_optimizer_dedupes_duplicate_simple_syrup_schedule_encode_nodes() -> None:
+    """Identical SimpleSyrup prompt schedule branches should dedupe generically."""
+
+    optimizer = _resource_optimizer()
+    optimized, report = optimizer.optimize(_simple_syrup_schedule_encode_prompt())
+
+    assert report.optimized is True
+    assert _node_ids_by_class(
+        optimized,
+        "SimpleSyrup.ScheduleAndEncodePromptsWithPromptControl",
+    ) == ["5"]
+    assert _node_ids_by_class(optimized, "Mahiro") == ["1"]
+    assert _node_ids_by_class(optimized, "PrimitiveStringMultiline") == ["2", "3"]
+    assert _node_ids_by_class(optimized, "SimpleSyrup.PromptEncodeStyle") == ["4"]
+    assert set(_node_ids_by_class(optimized, "SimpleSyrup.KSamplerExtras")) == {"8", "10"}
+    assert _node_ids_by_class(optimized, "VAEDecode") == ["9"]
+    assert _node_ids_by_class(optimized, "SimpleSyrup.VAEDecodeOptions") == ["19"]
+    assert _node_ids_by_class(optimized, "SimpleSyrup.VAEEncodeOptions") == ["20"]
+    assert _inputs(optimized, "10")["model"] == ["5", 0]
+    assert _inputs(optimized, "10")["positive"] == ["5", 1]
+    assert _inputs(optimized, "10")["negative"] == ["5", 2]
+    assert _inputs(optimized, "10")["latent_image"] == ["20", 0]
+    assert any(
+        replacement.class_type == "SimpleSyrup.ScheduleAndEncodePromptsWithPromptControl"
+        and replacement.duplicate_node_id == "13"
+        and replacement.canonical_node_id == "5"
+        for replacement in report.replacements
+    )
+
+
+def test_graph_optimizer_is_idempotent_after_simple_syrup_dedupe() -> None:
+    """Optimizing an optimized graph should not keep changing the topology."""
+
+    optimizer = _resource_optimizer()
+    optimized_once, first_report = optimizer.optimize(_simple_syrup_schedule_encode_prompt())
+    optimized_twice, second_report = optimizer.optimize(optimized_once)
+
+    assert first_report.optimized is True
+    assert second_report.optimized is False
+    assert optimized_twice == optimized_once
 
 
 def test_graph_optimizer_collapses_parallel_identical_model_resource_streams() -> None:
@@ -274,6 +321,101 @@ def test_graph_optimizer_preserves_multi_output_resource_slot_indexes() -> None:
         "model_resource_stream",
         "clip_resource_stream",
     ]
+
+
+def test_resource_policy_normalizes_union_and_work_types() -> None:
+    """Comfy comma-separated type strings should classify by normalized tokens."""
+
+    policy = ResourceOptimizationPolicy()
+
+    assert normalized_type_tokens(" CONDITIONING,CONDITIONING_BATCH ") == frozenset(
+        {"CONDITIONING", "CONDITIONING_BATCH"}
+    )
+    assert policy.output_type_class("CONDITIONING") is PromptTypeClass.RESOURCE
+    assert policy.output_type_class("CONDITIONING,CONDITIONING_BATCH") is (PromptTypeClass.RESOURCE)
+    assert policy.output_type_class("MODEL") is PromptTypeClass.RESOURCE
+    assert policy.output_type_class("STRING") is PromptTypeClass.PURE_VALUE
+    assert policy.output_type_class("LATENT") is PromptTypeClass.WORK
+    assert policy.output_type_class("MODEL,LATENT") is PromptTypeClass.WORK
+    assert policy.output_type_class("NOT_A_TYPE") is PromptTypeClass.UNKNOWN
+
+
+def test_graph_optimizer_keeps_schedule_branches_with_different_positive_prompt() -> None:
+    """Linked positive prompt text must affect schedule/encode identity."""
+
+    optimizer = _resource_optimizer()
+    prompt = _simple_syrup_schedule_encode_prompt()
+    cast("dict[str, object]", prompt["16"]["inputs"])["value"] = "different prompt"
+
+    optimized, report = optimizer.optimize(prompt)
+
+    assert report.optimized is True
+    assert set(
+        _node_ids_by_class(
+            optimized,
+            "SimpleSyrup.ScheduleAndEncodePromptsWithPromptControl",
+        )
+    ) == {"5", "13"}
+    assert _inputs(optimized, "10")["positive"] == ["13", 1]
+
+
+def test_graph_optimizer_keeps_schedule_branches_with_different_negative_prompt() -> None:
+    """Linked negative prompt text must affect schedule/encode identity."""
+
+    optimizer = _resource_optimizer()
+    prompt = _simple_syrup_schedule_encode_prompt()
+    cast("dict[str, object]", prompt["15"]["inputs"])["value"] = "different negative"
+
+    optimized, report = optimizer.optimize(prompt)
+
+    assert report.optimized is True
+    assert set(
+        _node_ids_by_class(
+            optimized,
+            "SimpleSyrup.ScheduleAndEncodePromptsWithPromptControl",
+        )
+    ) == {"5", "13"}
+    assert _inputs(optimized, "10")["negative"] == ["13", 2]
+
+
+def test_graph_optimizer_keeps_schedule_branches_with_different_encode_style() -> None:
+    """Linked encode-style config must affect schedule/encode identity."""
+
+    optimizer = _resource_optimizer()
+    prompt = _simple_syrup_schedule_encode_prompt()
+    cast("dict[str, object]", prompt["17"]["inputs"])["style"] = "comfy"
+
+    optimized, report = optimizer.optimize(prompt)
+
+    assert report.optimized is True
+    assert set(
+        _node_ids_by_class(
+            optimized,
+            "SimpleSyrup.ScheduleAndEncodePromptsWithPromptControl",
+        )
+    ) == {"5", "13"}
+    assert _inputs(optimized, "13")["encode_style"] == ["17", 0]
+
+
+def test_graph_optimizer_keeps_resource_node_with_linked_work_input_as_barrier() -> None:
+    """Resource outputs depending on work outputs should not be rewrite candidates."""
+
+    optimizer = _resource_optimizer()
+    optimized, report = optimizer.optimize(
+        {
+            "1": _node("TestModelClipLoader", ckpt_name="base"),
+            "2": _node("TestSampler", model=["1", 0], seed=1),
+            "3": _node("TestModelFromLatent", latent=["2", 0], mode="same"),
+            "4": _node("TestSampler", model=["1", 0], seed=1),
+            "5": _node("TestModelFromLatent", latent=["4", 0], mode="same"),
+            "6": _node("TestSampler", model=["3", 0]),
+            "7": _node("TestSampler", model=["5", 0]),
+        }
+    )
+
+    assert report.optimized is False
+    assert _node_ids_by_class(optimized, "TestModelFromLatent") == ["3", "5"]
+    assert _inputs(optimized, "7")["model"] == ["5", 0]
 
 
 def test_comfy_queue_adapter_runs_hooks_and_replacements_before_optimization() -> None:
@@ -508,6 +650,11 @@ def _resource_optimizer() -> PromptGraphOptimizer:
                     ),
                 ),
                 NodeDefinition(
+                    class_type="TestModelFromLatent",
+                    output_types=("MODEL",),
+                    input_types=(("latent", "LATENT"), ("mode", "STRING")),
+                ),
+                NodeDefinition(
                     class_type="TestSampler",
                     output_types=("LATENT",),
                     input_types=(("model", "MODEL"), ("clip", "CLIP")),
@@ -521,6 +668,76 @@ def _resource_optimizer() -> PromptGraphOptimizer:
                     class_type="TestLatentSink",
                     output_types=("IMAGE",),
                     input_types=(("latent", "LATENT"),),
+                ),
+                NodeDefinition(
+                    class_type="SimpleSyrup.SimpleLoadCheckpoint",
+                    output_types=("MODEL", "CLIP", "VAE"),
+                    input_types=(("ckpt_name", "STRING"),),
+                ),
+                NodeDefinition(
+                    class_type="Mahiro",
+                    output_types=("MODEL",),
+                    input_types=(("model", "MODEL"), ("mahiro_strength", "FLOAT")),
+                ),
+                NodeDefinition(
+                    class_type="PrimitiveStringMultiline",
+                    output_types=("STRING",),
+                    input_types=(("value", "STRING"),),
+                ),
+                NodeDefinition(
+                    class_type="SimpleSyrup.PromptEncodeStyle",
+                    output_types=("STRING",),
+                    input_types=(("style", "STRING"),),
+                ),
+                NodeDefinition(
+                    class_type="SimpleSyrup.ScheduleAndEncodePromptsWithPromptControl",
+                    output_types=(
+                        "MODEL",
+                        "CONDITIONING,CONDITIONING_BATCH",
+                        "CONDITIONING,CONDITIONING_BATCH",
+                    ),
+                    input_types=(
+                        ("model", "MODEL"),
+                        ("clip", "CLIP"),
+                        ("positive_prompt", "STRING"),
+                        ("negative_prompt", "STRING"),
+                        ("encode_style", "STRING"),
+                    ),
+                ),
+                NodeDefinition(
+                    class_type="SimpleSyrup.KSamplerExtras",
+                    output_types=("LATENT",),
+                    input_types=(
+                        ("model", "MODEL"),
+                        ("positive", "CONDITIONING"),
+                        ("negative", "CONDITIONING"),
+                        ("latent_image", "LATENT"),
+                    ),
+                ),
+                NodeDefinition(
+                    class_type="VAEDecode",
+                    output_types=("IMAGE",),
+                    input_types=(("samples", "LATENT"), ("vae", "VAE")),
+                ),
+                NodeDefinition(
+                    class_type="SimpleSyrup.VAEEncodeOptions",
+                    output_types=("LATENT",),
+                    input_types=(("pixels", "IMAGE"), ("vae", "VAE")),
+                ),
+                NodeDefinition(
+                    class_type="SimpleSyrup.VAEDecodeOptions",
+                    output_types=("IMAGE",),
+                    input_types=(("samples", "LATENT"), ("vae", "VAE")),
+                ),
+                NodeDefinition(
+                    class_type="SimpleSyrup.ResizeImageToTarget",
+                    output_types=("IMAGE",),
+                    input_types=(("image", "IMAGE"),),
+                ),
+                NodeDefinition(
+                    class_type="ImageUpscaleWithModel",
+                    output_types=("IMAGE",),
+                    input_types=(("image", "IMAGE"),),
                 ),
             )
         ),
@@ -705,6 +922,78 @@ def _shared_anima_prompt() -> ApiPrompt:
         "52": {
             "class_type": "SugarCubes.CubeOutput",
             "inputs": {"negative": ["42", 0], "positive": ["51", 0]},
+        },
+    }
+
+
+def _simple_syrup_schedule_encode_prompt() -> ApiPrompt:
+    """Build the observed duplicated SimpleSyrup schedule/encode graph shape."""
+
+    return {
+        "0": {"class_type": "SimpleSyrup.SimpleLoadCheckpoint", "inputs": {"ckpt_name": "base"}},
+        "1": {"class_type": "Mahiro", "inputs": {"model": ["0", 0], "mahiro_strength": 0.8}},
+        "2": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "low quality"}},
+        "3": {
+            "class_type": "PrimitiveStringMultiline",
+            "inputs": {"value": "subject <lora:Example\\style:0.7>"},
+        },
+        "4": {"class_type": "SimpleSyrup.PromptEncodeStyle", "inputs": {"style": "A1111"}},
+        "5": {
+            "class_type": "SimpleSyrup.ScheduleAndEncodePromptsWithPromptControl",
+            "inputs": {
+                "clip": ["0", 1],
+                "encode_style": ["4", 0],
+                "model": ["1", 0],
+                "negative_prompt": ["2", 0],
+                "positive_prompt": ["3", 0],
+            },
+        },
+        "8": {
+            "class_type": "SimpleSyrup.KSamplerExtras",
+            "inputs": {
+                "model": ["5", 0],
+                "negative": ["5", 2],
+                "positive": ["5", 1],
+                "seed": 100,
+            },
+        },
+        "9": {"class_type": "VAEDecode", "inputs": {"samples": ["8", 0], "vae": ["0", 2]}},
+        "11": {"class_type": "ImageUpscaleWithModel", "inputs": {"image": ["9", 0]}},
+        "12": {"class_type": "SimpleSyrup.ResizeImageToTarget", "inputs": {"image": ["11", 0]}},
+        "14": {"class_type": "Mahiro", "inputs": {"model": ["0", 0], "mahiro_strength": 0.8}},
+        "15": {"class_type": "PrimitiveStringMultiline", "inputs": {"value": "low quality"}},
+        "16": {
+            "class_type": "PrimitiveStringMultiline",
+            "inputs": {"value": "subject <lora:Example\\style:0.7>"},
+        },
+        "17": {"class_type": "SimpleSyrup.PromptEncodeStyle", "inputs": {"style": "A1111"}},
+        "13": {
+            "class_type": "SimpleSyrup.ScheduleAndEncodePromptsWithPromptControl",
+            "inputs": {
+                "clip": ["0", 1],
+                "encode_style": ["17", 0],
+                "model": ["14", 0],
+                "negative_prompt": ["15", 0],
+                "positive_prompt": ["16", 0],
+            },
+        },
+        "20": {
+            "class_type": "SimpleSyrup.VAEEncodeOptions",
+            "inputs": {"pixels": ["12", 0], "vae": ["0", 2]},
+        },
+        "10": {
+            "class_type": "SimpleSyrup.KSamplerExtras",
+            "inputs": {
+                "latent_image": ["20", 0],
+                "model": ["13", 0],
+                "negative": ["13", 2],
+                "positive": ["13", 1],
+                "seed": 100,
+            },
+        },
+        "19": {
+            "class_type": "SimpleSyrup.VAEDecodeOptions",
+            "inputs": {"samples": ["10", 0], "vae": ["0", 2]},
         },
     }
 

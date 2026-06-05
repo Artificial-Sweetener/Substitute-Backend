@@ -26,6 +26,7 @@ from substitute_backend.features.prompt_queue.application.optimization_context i
     node_options,
 )
 from substitute_backend.features.prompt_queue.application.resource_policy import (
+    PromptTypeClass,
     ResourceOptimizationPolicy,
 )
 from substitute_backend.features.prompt_queue.domain.graph import is_comfy_node_link
@@ -81,16 +82,17 @@ class GraphSignatureBuilder:
         output_type = self._context.output_type(node_id, output_slot)
         if node is None or class_type is None:
             return self._barrier_signature(node_id, output_slot, output_type)
-        if not self._policy.is_resource_output_type(output_type):
+        output_class = self._policy.output_type_class(output_type)
+        if output_class not in {PromptTypeClass.RESOURCE, PromptTypeClass.PURE_VALUE}:
             return self._barrier_signature(node_id, output_slot, output_type)
-        if self._policy.is_resource_root(
-            self._context,
-            node_id,
-        ):
+        if not self._policy.can_sign_output(self._context, node_id, output_slot):
+            return self._barrier_signature(node_id, output_slot, output_type)
+        linked_inputs = self._context.linked_input_sources(node_id)
+        if not linked_inputs:
             if not self._policy.root_identity_is_visible(self._context, node_id):
                 return self._barrier_signature(node_id, output_slot, output_type)
-            root_signature_value: NodeSignature = (
-                "resource_root_output",
+            root_signature_value = (
+                self._signature_kind(output_class, is_root=True),
                 class_type,
                 ("outputSlot", output_slot),
                 ("outputType", output_type),
@@ -100,12 +102,10 @@ class GraphSignatureBuilder:
             return ResourceSignature(
                 value=root_signature_value,
                 output_type=output_type,
-                is_root=True,
+                is_root=output_class is PromptTypeClass.RESOURCE,
             )
-        if not self._policy.is_resource_transformer(self._context, node_id):
-            return self._barrier_signature(node_id, output_slot, output_type)
         transformer_signature_value: NodeSignature = (
-            "resource_output",
+            self._signature_kind(output_class, is_root=False),
             class_type,
             ("outputSlot", output_slot),
             ("outputType", output_type),
@@ -114,6 +114,13 @@ class GraphSignatureBuilder:
             ("links", self._linked_input_signatures(node_id, visiting=visiting)),
         )
         return ResourceSignature(value=transformer_signature_value, output_type=output_type)
+
+    def _signature_kind(self, output_class: PromptTypeClass, *, is_root: bool) -> str:
+        """Return a signature namespace for one safe output class."""
+
+        if output_class is PromptTypeClass.PURE_VALUE:
+            return "pure_value_root_output" if is_root else "pure_value_output"
+        return "resource_root_output" if is_root else "resource_output"
 
     def _linked_input_signatures(
         self,

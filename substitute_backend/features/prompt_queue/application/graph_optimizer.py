@@ -213,10 +213,18 @@ class PromptGraphOptimizer:
             for output_slot in context.output_slots(node_id):
                 if context.node(node_id) is None:
                     break
-                if not self._resource_policy.can_intern_output(context, node_id, output_slot):
+                eligible, reason = self._resource_policy.intern_output_decision(
+                    context,
+                    node_id,
+                    output_slot,
+                )
+                _ = reason
+                if not eligible:
                     continue
                 resource_signature = builder.signature_for_output(node_id, output_slot)
-                if resource_signature.is_barrier or resource_signature.is_root:
+                if resource_signature.is_barrier:
+                    continue
+                if resource_signature.is_root:
                     continue
                 canonical = canonical_by_signature.get(resource_signature.value)
                 if canonical is None or context.node(canonical[0]) is None:

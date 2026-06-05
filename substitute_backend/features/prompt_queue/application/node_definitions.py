@@ -53,3 +53,13 @@ class NodeDefinitionProvider:
         """Return cached metadata for one node class."""
 
         return self._definitions.get(class_type)
+
+    def definition_count(self) -> int:
+        """Return the number of cached node definitions."""
+
+        return len(self._definitions)
+
+    def class_types(self) -> tuple[str, ...]:
+        """Return cached class names in deterministic order."""
+
+        return tuple(sorted(self._definitions))
