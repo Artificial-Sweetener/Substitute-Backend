@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.5.0...v1.5.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* **prompt-queue:** preserve graph boundaries during dedupe ([dd8814b](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/dd8814bfee905e41735d62ce825ed13d030b5d23))
+
 # [1.5.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.4.0...v1.5.0) (2026-06-04)
 
 
