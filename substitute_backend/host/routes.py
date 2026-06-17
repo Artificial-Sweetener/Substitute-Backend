@@ -23,6 +23,7 @@ from typing import Protocol, TypeVar, runtime_checkable
 
 from aiohttp import web
 
+from substitute_backend.api.errors import BackendHttpError, json_error
 from substitute_backend.api.serialization import JsonValue
 from substitute_backend.features.cube_library.api.routes import (
     CubeLibraryRouteHandlers,
@@ -274,73 +275,94 @@ def _build_capabilities_handler(
 ) -> Callable[[web.Request], object]:
     """Build the top-level capability route across feature handlers."""
 
+    logger = get_logger("routes.capabilities")
+
     async def capabilities(request: web.Request) -> web.Response:
         """Return backend capabilities with all feature payloads."""
 
         _ = request
-        services.cube_outputs.registration.register()
-        payload = services.model_metadata.capabilities.get_capabilities().to_payload()
-        features = payload.get("features")
-        feature_list = (
-            [item for item in features if isinstance(item, str)]
-            if isinstance(features, list)
-            else []
-        )
-        if "environment-management" not in feature_list:
-            feature_list.append("environment-management")
-        if "preview-assets" not in feature_list:
-            feature_list.append("preview-assets")
-        if "cube-library" not in feature_list:
-            feature_list.append("cube-library")
-        if "download-telemetry" not in feature_list:
-            feature_list.append("download-telemetry")
-        if "prompt-queue-facade" not in feature_list:
-            feature_list.append("prompt-queue-facade")
-        if "visual-routing" not in feature_list:
-            feature_list.append("visual-routing")
-        sugar_compile_capabilities = services.sugar_compile.compile.capabilities()
-        if sugar_compile_capabilities.available and "sugar-compile" not in feature_list:
-            feature_list.append("sugar-compile")
-        feature_payload: list[JsonValue] = list(feature_list)
-        payload["features"] = feature_payload
-        payload["cubeLibrary"] = services.cube_library.library.capabilities()
-        payload["environmentManagement"] = (
-            services.environment.environment.get_capabilities().to_payload()
-        )
-        payload["modelLoadingTelemetry"] = {
-            "supported": True,
-            "eventType": "substitute_model_load_progress",
-            "sourceMetadata": "best-effort-prompt-graph",
-            "percentMode": "best-effort-runtime-patch",
-            "fallback": "progress_state",
-        }
-        payload["downloadTelemetry"] = {
-            "supported": True,
-            "eventType": "substitute_download_progress",
-            "providers": ["huggingface"],
-            "percentMode": "huggingface-byte-progress",
-            "scope": "best-effort-runtime-patch",
-        }
-        payload["previewAssets"] = {
-            "schemaVersion": 1,
-            "taesdPreparationSupported": True,
-        }
-        payload["promptQueue"] = {
-            "schemaVersion": 1,
-            "queueRoute": "/substitute/v1/prompt/queue",
-            "optimizationSupported": True,
-            "optimizationReportSupported": True,
-            "debugDumpSupported": False,
-        }
-        payload["visualRouting"] = {
-            "schemaVersion": 1,
-            "finalOutputIdentityRequired": True,
-            "previewMetadataIdentitySupported": True,
-            "eventType": "substitute_cube_output",
-            "previewMetadataKey": "substitute",
-        }
-        payload["sugarCompile"] = sugar_compile_capabilities.to_payload()
-        return web.json_response(payload)
+        try:
+            try:
+                services.cube_outputs.registration.register()
+            except Exception as exc:
+                logger.warning(
+                    "cube-output registration failed during capability probe",
+                    extra={"operation": "capabilities", "error": repr(exc)},
+                )
+            payload = services.model_metadata.capabilities.get_capabilities().to_payload()
+            features = payload.get("features")
+            feature_list = (
+                [item for item in features if isinstance(item, str)]
+                if isinstance(features, list)
+                else []
+            )
+            if "environment-management" not in feature_list:
+                feature_list.append("environment-management")
+            if "preview-assets" not in feature_list:
+                feature_list.append("preview-assets")
+            if "cube-library" not in feature_list:
+                feature_list.append("cube-library")
+            if "download-telemetry" not in feature_list:
+                feature_list.append("download-telemetry")
+            if "prompt-queue-facade" not in feature_list:
+                feature_list.append("prompt-queue-facade")
+            if "visual-routing" not in feature_list:
+                feature_list.append("visual-routing")
+            sugar_compile_capabilities = services.sugar_compile.compile.capabilities()
+            if sugar_compile_capabilities.available and "sugar-compile" not in feature_list:
+                feature_list.append("sugar-compile")
+            feature_payload: list[JsonValue] = list(feature_list)
+            payload["features"] = feature_payload
+            payload["cubeLibrary"] = services.cube_library.library.capabilities()
+            payload["environmentManagement"] = (
+                services.environment.environment.get_capabilities().to_payload()
+            )
+            payload["modelLoadingTelemetry"] = {
+                "supported": True,
+                "eventType": "substitute_model_load_progress",
+                "sourceMetadata": "best-effort-prompt-graph",
+                "percentMode": "best-effort-runtime-patch",
+                "fallback": "progress_state",
+            }
+            payload["downloadTelemetry"] = {
+                "supported": True,
+                "eventType": "substitute_download_progress",
+                "providers": ["huggingface"],
+                "percentMode": "huggingface-byte-progress",
+                "scope": "best-effort-runtime-patch",
+            }
+            payload["previewAssets"] = {
+                "schemaVersion": 1,
+                "taesdPreparationSupported": True,
+            }
+            payload["promptQueue"] = {
+                "schemaVersion": 1,
+                "queueRoute": "/substitute/v1/prompt/queue",
+                "optimizationSupported": True,
+                "optimizationReportSupported": True,
+                "debugDumpSupported": False,
+            }
+            payload["visualRouting"] = {
+                "schemaVersion": 1,
+                "finalOutputIdentityRequired": True,
+                "previewMetadataIdentitySupported": True,
+                "eventType": "substitute_cube_output",
+                "previewMetadataKey": "substitute",
+            }
+            payload["sugarCompile"] = sugar_compile_capabilities.to_payload()
+            return web.json_response(payload)
+        except Exception as exc:
+            logger.exception(
+                "backend capabilities route failed",
+                extra={"operation": "capabilities", "error": repr(exc)},
+            )
+            return json_error(
+                BackendHttpError(
+                    message="Substitute BackEnd capabilities are unavailable.",
+                    status=503,
+                    code="backend-capabilities-unavailable",
+                )
+            )
 
     return capabilities
 

@@ -20,14 +20,16 @@ import importlib.util
 import json
 import sys
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from importlib import metadata
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import pytest
 from aiohttp import web
 
 from substitute_backend.api.serialization import JsonObject
+from substitute_backend.features.cube_outputs.application import CubeOutputServices
 from substitute_backend.features.model_metadata.application.capability_service import (
     CapabilityService,
 )
@@ -234,6 +236,98 @@ def test_capabilities_payload_advertises_preview_assets(
             "compileRoute": "/substitute/v1/sugar/compile",
             "liveNodeDefinitions": True,
             "sugarDslVersion": "0.8.1",
+        }
+
+    asyncio.run(run_capabilities())
+
+
+def test_capabilities_payload_survives_cube_output_registration_failure(
+    tmp_path: Path,
+) -> None:
+    """Top-level capabilities should not fail when optional observer registration fails."""
+
+    class _FailingRegistration:
+        """Raise from cube-output registration to exercise route fault isolation."""
+
+        def register(self) -> None:
+            """Fail like a host observer hook that is unavailable during startup."""
+
+            raise RuntimeError("observer hook unavailable")
+
+    async def run_capabilities() -> None:
+        provider = StaticModelRootsProvider({"loras": (tmp_path,)}, {".safetensors"})
+        services = build_backend_services(
+            tmp_path,
+            model_roots=provider,
+            preview_assets=_preview_asset_services(tmp_path),
+        )
+        services = replace(
+            services,
+            cube_outputs=CubeOutputServices(
+                registration=cast(Any, _FailingRegistration()),
+            ),
+        )
+        prompt_server = FakePromptServer()
+
+        register_routes(cast("PromptServerLike", prompt_server), services)
+        handler = cast(
+            "Callable[[web.Request], Awaitable[web.Response]]",
+            prompt_server.routes.handlers[("GET", "/substitute/v1/capabilities")],
+        )
+        response = await handler(cast("web.Request", object()))
+
+        assert response.status == 200
+        assert response.text is not None
+        payload = json.loads(response.text)
+        assert "visual-routing" in payload["features"]
+        assert payload["visualRouting"]["eventType"] == "substitute_cube_output"
+
+    asyncio.run(run_capabilities())
+
+
+def test_capabilities_payload_returns_json_error_for_capability_failure(
+    tmp_path: Path,
+) -> None:
+    """Top-level capabilities should return structured JSON for backend failures."""
+
+    class _FailingCapabilities:
+        """Raise from model metadata capabilities to exercise route error handling."""
+
+        def get_capabilities(self) -> object:
+            """Fail like a host capability collaborator that became unavailable."""
+
+            raise RuntimeError("capability collaborator unavailable")
+
+    async def run_capabilities() -> None:
+        provider = StaticModelRootsProvider({"loras": (tmp_path,)}, {".safetensors"})
+        services = build_backend_services(
+            tmp_path,
+            model_roots=provider,
+            preview_assets=_preview_asset_services(tmp_path),
+        )
+        services = replace(
+            services,
+            model_metadata=replace(
+                services.model_metadata,
+                capabilities=cast(Any, _FailingCapabilities()),
+            ),
+        )
+        prompt_server = FakePromptServer()
+
+        register_routes(cast("PromptServerLike", prompt_server), services)
+        handler = cast(
+            "Callable[[web.Request], Awaitable[web.Response]]",
+            prompt_server.routes.handlers[("GET", "/substitute/v1/capabilities")],
+        )
+        response = await handler(cast("web.Request", object()))
+
+        assert response.status == 503
+        assert response.text is not None
+        assert json.loads(response.text) == {
+            "error": {
+                "code": "backend-capabilities-unavailable",
+                "message": "Substitute BackEnd capabilities are unavailable.",
+            }
         }
 
     asyncio.run(run_capabilities())

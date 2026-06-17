@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .capability_service import CapabilityService
+from .catalog_refresh_service import CatalogRefreshService
 from .catalog_service import CatalogService
 from .fingerprint_service import FingerprintService
 from .hash_lookup_service import HashLookupService
@@ -34,6 +35,7 @@ class ModelMetadataServices:
 
     capabilities: CapabilityService
     catalog: CatalogService
+    catalog_refresh: CatalogRefreshService
     fingerprints: FingerprintService
     hash_lookup: HashLookupService
     downloads: ModelDownloadService

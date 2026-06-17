@@ -75,8 +75,9 @@ def build_model_metadata_route_handlers(
         """Return model catalog entries for requested model kinds."""
 
         try:
+            kinds = _parse_kind_query(request)
             query = CatalogQuery(
-                kinds=_parse_kind_query(request),
+                kinds=kinds,
                 include_hashes=_parse_bool(request.query.get("includeHashes"), False),
                 include_local_metadata=_parse_bool(
                     request.query.get("includeLocalMetadata"),
@@ -84,6 +85,8 @@ def build_model_metadata_route_handlers(
                 ),
                 include_previews=_parse_bool(request.query.get("includePreviews"), True),
             )
+            if _parse_bool(request.query.get("refresh"), False):
+                services.catalog_refresh.refresh(kinds)
             entries = services.catalog.list_models(query)
             return web.json_response(
                 {

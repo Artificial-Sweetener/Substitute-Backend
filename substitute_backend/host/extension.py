@@ -101,6 +101,9 @@ from substitute_backend.features.model_loading.infrastructure.prompt_server_publ
 from substitute_backend.features.model_metadata.application.capability_service import (
     CapabilityService,
 )
+from substitute_backend.features.model_metadata.application.catalog_refresh_service import (
+    CatalogRefreshService,
+)
 from substitute_backend.features.model_metadata.application.catalog_service import (
     CatalogService,
 )
@@ -233,6 +236,9 @@ def build_model_metadata_services(
     )
     node_dependency_index = _build_node_dependency_index()
     snapshot_service = ModelFolderSnapshotService(roots)
+    cache_invalidator = ComfyFolderCacheInvalidator(
+        logger=get_logger("model_metadata.folder_cache"),
+    )
     return ModelMetadataServices(
         capabilities=CapabilityService(model_roots=roots),
         catalog=CatalogService(
@@ -242,6 +248,7 @@ def build_model_metadata_services(
             preview_store=preview_store,
             logger=get_logger("catalog"),
         ),
+        catalog_refresh=CatalogRefreshService(cache_invalidator),
         fingerprints=fingerprints,
         hash_lookup=HashLookupService(
             model_roots=roots,
@@ -263,9 +270,7 @@ def build_model_metadata_services(
                 logger=get_logger("model_metadata.publisher"),
             ),
             node_class_resolver=node_dependency_index,
-            cache_invalidator=ComfyFolderCacheInvalidator(
-                logger=get_logger("model_metadata.folder_cache"),
-            ),
+            cache_invalidator=cache_invalidator,
             logger=get_logger("model_metadata.change_monitor"),
         ),
     )

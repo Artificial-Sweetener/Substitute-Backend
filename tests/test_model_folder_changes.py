@@ -25,6 +25,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from aiohttp.test_utils import make_mocked_request
+
 from substitute_backend.features.model_metadata.api.routes import (
     build_model_metadata_route_handlers,
 )
@@ -85,6 +87,36 @@ class _CacheInvalidator:
         """Record one invalidation call."""
 
         self.calls.append(tuple(kinds))
+
+
+class _CatalogRefresh:
+    """Collect explicit catalog refresh requests for route tests."""
+
+    def __init__(self, events: list[tuple[str, tuple[str, ...] | None]]) -> None:
+        """Store the shared event log."""
+
+        self._events = events
+
+    def refresh(self, kinds: Iterable[str] | None) -> None:
+        """Record one explicit refresh request."""
+
+        self._events.append(("refresh", None if kinds is None else tuple(kinds)))
+
+
+class _CatalogList:
+    """Collect catalog list calls for route tests."""
+
+    def __init__(self, events: list[tuple[str, tuple[str, ...] | None]]) -> None:
+        """Store the shared event log."""
+
+        self._events = events
+
+    def list_models(self, query: object) -> tuple[object, ...]:
+        """Record one catalog list request and return no entries."""
+
+        kinds = getattr(query, "kinds", None)
+        self._events.append(("list", None if kinds is None else tuple(kinds)))
+        return ()
 
 
 class _PromptServer:
@@ -355,6 +387,7 @@ def test_latest_model_changes_route_returns_latest_change_payload() -> None:
 
     services = ModelMetadataServices(
         catalog=object(),  # type: ignore[arg-type]
+        catalog_refresh=object(),  # type: ignore[arg-type]
         capabilities=object(),  # type: ignore[arg-type]
         fingerprints=object(),  # type: ignore[arg-type]
         previews=object(),  # type: ignore[arg-type]
@@ -371,6 +404,77 @@ def test_latest_model_changes_route_returns_latest_change_payload() -> None:
 
     assert '"revision": "rev2"' in payload
     assert '"latestChange": {' in payload
+
+
+def test_models_route_refresh_invalidates_before_listing() -> None:
+    """Explicit model catalog refresh invalidates requested kinds before listing."""
+
+    class _Changes:
+        """Unused fake monitor for route handler tests."""
+
+        revision = "unused"
+        latest_change = None
+
+    events: list[tuple[str, tuple[str, ...] | None]] = []
+    services = ModelMetadataServices(
+        catalog=_CatalogList(events),  # type: ignore[arg-type]
+        catalog_refresh=_CatalogRefresh(events),  # type: ignore[arg-type]
+        capabilities=object(),  # type: ignore[arg-type]
+        fingerprints=object(),  # type: ignore[arg-type]
+        previews=object(),  # type: ignore[arg-type]
+        hash_lookup=object(),  # type: ignore[arg-type]
+        downloads=object(),  # type: ignore[arg-type]
+        changes=_Changes(),  # type: ignore[arg-type]
+    )
+    handler = build_model_metadata_route_handlers(services, logging.getLogger("test"))
+    request = make_mocked_request(
+        "GET",
+        "/substitute/v1/models?kind=loras&refresh=1",
+    )
+
+    async def run_request() -> Any:
+        """Run the route handler through a concrete coroutine for strict typing."""
+
+        return await handler.list_models(request)
+
+    response: Any = asyncio.run(run_request())
+
+    assert response.status == 200
+    assert events == [("refresh", ("loras",)), ("list", ("loras",))]
+
+
+def test_models_route_normal_list_does_not_invalidate() -> None:
+    """Normal model catalog listing must not force cache invalidation."""
+
+    class _Changes:
+        """Unused fake monitor for route handler tests."""
+
+        revision = "unused"
+        latest_change = None
+
+    events: list[tuple[str, tuple[str, ...] | None]] = []
+    services = ModelMetadataServices(
+        catalog=_CatalogList(events),  # type: ignore[arg-type]
+        catalog_refresh=_CatalogRefresh(events),  # type: ignore[arg-type]
+        capabilities=object(),  # type: ignore[arg-type]
+        fingerprints=object(),  # type: ignore[arg-type]
+        previews=object(),  # type: ignore[arg-type]
+        hash_lookup=object(),  # type: ignore[arg-type]
+        downloads=object(),  # type: ignore[arg-type]
+        changes=_Changes(),  # type: ignore[arg-type]
+    )
+    handler = build_model_metadata_route_handlers(services, logging.getLogger("test"))
+    request = make_mocked_request("GET", "/substitute/v1/models?kind=loras")
+
+    async def run_request() -> Any:
+        """Run the route handler through a concrete coroutine for strict typing."""
+
+        return await handler.list_models(request)
+
+    response: Any = asyncio.run(run_request())
+
+    assert response.status == 200
+    assert events == [("list", ("loras",))]
 
 
 def _change_event() -> ModelCatalogChangeSet:
