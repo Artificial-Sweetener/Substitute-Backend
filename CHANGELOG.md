@@ -1,3 +1,15 @@
+# [1.6.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.5.1...v1.6.0) (2026-06-17)
+
+
+### Bug Fixes
+
+* **deps:** require sugar-dsl 1.1.3 ([e525713](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/e5257131716e11762c4450f56906ec7f45fa876d))
+
+
+### Features
+
+* **model-metadata:** add catalog refresh route support ([1656ae5](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/1656ae5cb3039a685e9e86d8658353581d654faa))
+
 ## [1.5.1](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.5.0...v1.5.1) (2026-06-05)
 
 
