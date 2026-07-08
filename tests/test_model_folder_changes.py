@@ -20,11 +20,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import pytest
 from aiohttp.test_utils import make_mocked_request
 
 from substitute_backend.features.model_metadata.api.routes import (
@@ -51,6 +53,7 @@ from substitute_backend.features.model_metadata.domain.change_events import (
     ModelFileStatSnapshot,
 )
 from substitute_backend.features.model_metadata.infrastructure import (
+    CachedNodeModelDependencyScanner,
     ComfyFolderCacheInvalidator,
     ComfyNodeModelDependencyScanner,
     PromptServerModelCatalogPublisher,
@@ -138,6 +141,22 @@ class _FolderPathsModule(ModuleType):
 
     filename_list_cache: dict[str, list[str]]
     cache_helper: object
+
+
+class _CountingDependencyScanner:
+    """Return deterministic dependencies while counting expensive scans."""
+
+    def __init__(self, dependencies: dict[str, tuple[str, ...]]) -> None:
+        """Store the scan result and initialize the call counter."""
+
+        self.dependencies = dependencies
+        self.calls = 0
+
+    def scan(self) -> dict[str, tuple[str, ...]]:
+        """Record one scan and return deterministic dependencies."""
+
+        self.calls += 1
+        return self.dependencies
 
 
 def test_snapshot_diff_detects_add_remove_modify_and_ignores_unsupported(
@@ -347,6 +366,190 @@ def test_node_model_dependency_scanner_records_folder_path_usage() -> None:
         "loras": ("LoraLoader",),
     }
     assert folder_paths.get_filename_list == original
+
+
+def test_cached_node_model_dependency_scanner_skips_unchanged_scan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Normal startup should reuse cached node dependencies without INPUT_TYPES scans."""
+
+    monkeypatch.setenv("SUBSTITUTE_BACKEND_DIAGNOSTICS", "startup")
+    caplog.set_level(logging.INFO, logger="test")
+
+    class LoraNode:
+        """Fake node class with stable source facts."""
+
+    nodes = type("Nodes", (), {"NODE_CLASS_MAPPINGS": {"LoraLoader": LoraNode}})()
+    scanner = _CountingDependencyScanner({"loras": ("LoraLoader",)})
+    cache_path = tmp_path / "node_model_dependencies.json"
+    first = CachedNodeModelDependencyScanner(
+        cache_path=cache_path,
+        scanner=scanner,
+        nodes_module=nodes,
+        logger=logging.getLogger("test"),
+    )
+
+    assert first.scan() == {"loras": ("LoraLoader",)}
+    assert scanner.calls == 1
+
+    second = CachedNodeModelDependencyScanner(
+        cache_path=cache_path,
+        scanner=scanner,
+        nodes_module=nodes,
+        logger=logging.getLogger("test"),
+    )
+
+    assert second.scan() == {"loras": ("LoraLoader",)}
+    assert scanner.calls == 1
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "event=substitute_node_dependency_index_timing" in message
+        and "cache_hit=True" in message
+        and "signature_unique_module_count=" in message
+        and "current_signature=" in message
+        and "current_signature.resolve_source_paths=" in message
+        and "read_cache=" in message
+        for message in messages
+    )
+
+
+def test_cached_node_model_dependency_scanner_reuses_shared_source_facts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cache validation should stat one shared module source only once."""
+
+    module_name = "fake_shared_comfy_node_source_for_cache_test"
+    source_path = tmp_path / "shared_nodes.py"
+    source_path.write_text("VALUE = 1\n", encoding="utf-8")
+    module = ModuleType(module_name)
+    module.__file__ = str(source_path)
+    monkeypatch.setitem(sys.modules, module_name, module)
+    first_node = type("FirstNode", (), {"__module__": module_name})
+    second_node = type("SecondNode", (), {"__module__": module_name})
+    nodes = type(
+        "Nodes",
+        (),
+        {
+            "NODE_CLASS_MAPPINGS": {
+                "FirstNode": first_node,
+                "SecondNode": second_node,
+            }
+        },
+    )()
+    scanner = _CountingDependencyScanner({"loras": ("FirstNode",)})
+    source_fact_paths: list[Path | None] = []
+    original_source_facts = CachedNodeModelDependencyScanner._source_facts
+
+    def counting_source_facts(path: Path | None) -> dict[str, object]:
+        """Record source-fact lookups while preserving behavior."""
+
+        source_fact_paths.append(path)
+        return original_source_facts(path)
+
+    monkeypatch.setattr(
+        CachedNodeModelDependencyScanner,
+        "_source_facts",
+        staticmethod(counting_source_facts),
+    )
+
+    CachedNodeModelDependencyScanner(
+        cache_path=tmp_path / "node_model_dependencies.json",
+        scanner=scanner,
+        nodes_module=nodes,
+        logger=logging.getLogger("test"),
+    ).scan()
+
+    assert source_fact_paths == [source_path.resolve()]
+
+
+def test_cached_node_model_dependency_scanner_rebuilds_when_nodes_change(
+    tmp_path: Path,
+) -> None:
+    """Changed node registry facts should invalidate the persisted dependency index."""
+
+    class LoraNode:
+        """Initial fake node class."""
+
+    class CheckpointNode:
+        """Added fake node class."""
+
+    nodes = type("Nodes", (), {"NODE_CLASS_MAPPINGS": {"LoraLoader": LoraNode}})()
+    scanner = _CountingDependencyScanner({"loras": ("LoraLoader",)})
+    cache_path = tmp_path / "node_model_dependencies.json"
+    CachedNodeModelDependencyScanner(
+        cache_path=cache_path,
+        scanner=scanner,
+        nodes_module=nodes,
+        logger=logging.getLogger("test"),
+    ).scan()
+    nodes.NODE_CLASS_MAPPINGS = {
+        "CheckpointLoaderSimple": CheckpointNode,
+        "LoraLoader": LoraNode,
+    }
+    scanner.dependencies = {
+        "checkpoints": ("CheckpointLoaderSimple",),
+        "loras": ("LoraLoader",),
+    }
+
+    dependencies = CachedNodeModelDependencyScanner(
+        cache_path=cache_path,
+        scanner=scanner,
+        nodes_module=nodes,
+        logger=logging.getLogger("test"),
+    ).scan()
+
+    assert dependencies == {
+        "checkpoints": ("CheckpointLoaderSimple",),
+        "loras": ("LoraLoader",),
+    }
+    assert scanner.calls == 2
+
+
+def test_cached_node_model_dependency_scanner_rebuilds_when_source_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Changed node source file facts should invalidate the dependency index."""
+
+    module_name = "fake_comfy_node_source_for_cache_test"
+    source_path = tmp_path / "fake_node.py"
+    source_path.write_text("VALUE = 1\n", encoding="utf-8")
+    os.utime(
+        source_path,
+        ns=(1_700_000_000_100_000_000, 1_700_000_000_100_000_000),
+    )
+    module = ModuleType(module_name)
+    module.__file__ = str(source_path)
+    monkeypatch.setitem(sys.modules, module_name, module)
+    lora_node = type("LoraNode", (), {"__module__": module_name})
+    nodes = type("Nodes", (), {"NODE_CLASS_MAPPINGS": {"LoraLoader": lora_node}})()
+    scanner = _CountingDependencyScanner({"loras": ("LoraLoader",)})
+    cache_path = tmp_path / "node_model_dependencies.json"
+    CachedNodeModelDependencyScanner(
+        cache_path=cache_path,
+        scanner=scanner,
+        nodes_module=nodes,
+        logger=logging.getLogger("test"),
+    ).scan()
+
+    source_path.write_text("VALUE = 2\n", encoding="utf-8")
+    os.utime(
+        source_path,
+        ns=(1_700_000_000_900_000_000, 1_700_000_000_900_000_000),
+    )
+    scanner.dependencies = {"loras": ("LoraLoader", "LoraLoaderAdvanced")}
+    dependencies = CachedNodeModelDependencyScanner(
+        cache_path=cache_path,
+        scanner=scanner,
+        nodes_module=nodes,
+        logger=logging.getLogger("test"),
+    ).scan()
+
+    assert dependencies == {"loras": ("LoraLoader", "LoraLoaderAdvanced")}
+    assert scanner.calls == 2
 
 
 def test_prompt_server_publisher_sends_public_payload_without_paths() -> None:

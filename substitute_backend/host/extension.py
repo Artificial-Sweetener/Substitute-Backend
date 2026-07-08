@@ -18,9 +18,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import cast
 
 from substitute_backend.features.cube_library.application import (
@@ -132,6 +134,7 @@ from substitute_backend.features.model_metadata.application.services import (
     ModelMetadataServices,
 )
 from substitute_backend.features.model_metadata.infrastructure import (
+    CachedNodeModelDependencyScanner,
     ComfyFolderCacheInvalidator,
     ComfyNodeModelDependencyScanner,
     PromptServerModelCatalogPublisher,
@@ -165,6 +168,7 @@ from substitute_backend.features.preview_routing import (
     PreviewMetadataEnrichmentInstaller,
 )
 from substitute_backend.features.prompt_queue.application import (
+    LazyNodeDefinitionProvider,
     PromptGraphOptimizer,
     PromptQueueService,
     PromptQueueServices,
@@ -198,6 +202,10 @@ from substitute_backend.infrastructure.diagnostics import (
 )
 from substitute_backend.infrastructure.logging import get_logger
 
+_DIAGNOSTICS_ENV_VAR = "SUBSTITUTE_BACKEND_DIAGNOSTICS"
+_STARTUP_DIAGNOSTICS = "startup"
+_ALL_DIAGNOSTICS = "all"
+
 
 @dataclass(frozen=True)
 class BackendServices:
@@ -224,56 +232,102 @@ def build_model_metadata_services(
 ) -> ModelMetadataServices:
     """Build application services for the model metadata feature."""
 
+    started_at = perf_counter()
+    phase_started_at = started_at
+    phase_timings: dict[str, float] = {}
+
+    def record_phase(name: str) -> None:
+        """Record one model metadata service construction phase."""
+
+        nonlocal phase_started_at
+        now = perf_counter()
+        phase_timings[name] = round((now - phase_started_at) * 1000, 3)
+        phase_started_at = now
+
     roots = model_roots or ComfyModelRootsProvider()
+    record_phase("roots_provider")
     cache_root = ensure_cache_root(extension_root)
+    record_phase("cache_root")
     fingerprint_cache = FingerprintCache(cache_root / "model_metadata.sqlite3")
-    preview_store = PreviewStore(approved_roots=roots.approved_roots())
+    record_phase("fingerprint_cache")
+    approved_roots = roots.approved_roots()
+    record_phase("approved_roots")
+    preview_store = PreviewStore(approved_roots=approved_roots)
+    record_phase("preview_store")
     worker = FingerprintWorker(cache=fingerprint_cache)
+    record_phase("fingerprint_worker")
     fingerprints = FingerprintService(
         model_roots=roots,
         fingerprint_cache=fingerprint_cache,
         worker=worker,
     )
-    node_dependency_index = _build_node_dependency_index()
+    record_phase("fingerprint_service")
+    node_dependency_index = _build_node_dependency_index(cache_root=cache_root)
+    record_phase("node_dependency_index")
     snapshot_service = ModelFolderSnapshotService(roots)
+    record_phase("snapshot_service")
     cache_invalidator = ComfyFolderCacheInvalidator(
         logger=get_logger("model_metadata.folder_cache"),
     )
-    return ModelMetadataServices(
-        capabilities=CapabilityService(model_roots=roots),
-        catalog=CatalogService(
-            model_roots=roots,
-            fingerprint_cache=fingerprint_cache,
-            sidecar_reader=SidecarReader(),
-            preview_store=preview_store,
-            logger=get_logger("catalog"),
-        ),
-        catalog_refresh=CatalogRefreshService(cache_invalidator),
-        fingerprints=fingerprints,
-        hash_lookup=HashLookupService(
-            model_roots=roots,
-            fingerprint_cache=fingerprint_cache,
-            sidecar_reader=SidecarReader(),
-            fingerprints=fingerprints,
-            logger=get_logger("hash_lookup"),
-        ),
-        downloads=ModelDownloadService(
-            model_roots=roots,
-            fingerprint_cache=fingerprint_cache,
-        ),
-        previews=PreviewService(preview_store=preview_store),
-        changes=ModelFolderChangeMonitor(
-            model_roots=roots,
-            snapshot_service=snapshot_service,
-            publisher=PromptServerModelCatalogPublisher(
-                prompt_server=prompt_server or object(),
-                logger=get_logger("model_metadata.publisher"),
-            ),
-            node_class_resolver=node_dependency_index,
-            cache_invalidator=cache_invalidator,
-            logger=get_logger("model_metadata.change_monitor"),
-        ),
+    record_phase("cache_invalidator")
+    capabilities = CapabilityService(model_roots=roots)
+    record_phase("capability_service")
+    catalog = CatalogService(
+        model_roots=roots,
+        fingerprint_cache=fingerprint_cache,
+        sidecar_reader=SidecarReader(),
+        preview_store=preview_store,
+        logger=get_logger("catalog"),
     )
+    record_phase("catalog_service")
+    catalog_refresh = CatalogRefreshService(cache_invalidator)
+    record_phase("catalog_refresh_service")
+    hash_lookup = HashLookupService(
+        model_roots=roots,
+        fingerprint_cache=fingerprint_cache,
+        sidecar_reader=SidecarReader(),
+        fingerprints=fingerprints,
+        logger=get_logger("hash_lookup"),
+    )
+    record_phase("hash_lookup_service")
+    downloads = ModelDownloadService(
+        model_roots=roots,
+        fingerprint_cache=fingerprint_cache,
+    )
+    record_phase("download_service")
+    previews = PreviewService(preview_store=preview_store)
+    record_phase("preview_service")
+    publisher = PromptServerModelCatalogPublisher(
+        prompt_server=prompt_server or object(),
+        logger=get_logger("model_metadata.publisher"),
+    )
+    record_phase("publisher")
+    changes = ModelFolderChangeMonitor(
+        model_roots=roots,
+        snapshot_service=snapshot_service,
+        publisher=publisher,
+        node_class_resolver=node_dependency_index,
+        cache_invalidator=cache_invalidator,
+        logger=get_logger("model_metadata.change_monitor"),
+    )
+    record_phase("change_monitor")
+    services = ModelMetadataServices(
+        capabilities=capabilities,
+        catalog=catalog,
+        catalog_refresh=catalog_refresh,
+        fingerprints=fingerprints,
+        hash_lookup=hash_lookup,
+        downloads=downloads,
+        previews=previews,
+        changes=changes,
+    )
+    record_phase("service_container")
+    _log_startup_timing(
+        "model_metadata_services",
+        total_duration_ms=round((perf_counter() - started_at) * 1000, 3),
+        phase_timings=phase_timings,
+    )
+    return services
 
 
 def build_environment_management_services(extension_root: Path) -> EnvironmentManagementServices:
@@ -316,12 +370,16 @@ def build_environment_management_services(extension_root: Path) -> EnvironmentMa
     )
 
 
-def _build_node_dependency_index() -> NodeModelDependencyIndex:
+def _build_node_dependency_index(*, cache_root: Path) -> NodeModelDependencyIndex:
     """Build model-folder node dependencies without breaking offline tests."""
 
     logger = get_logger("model_metadata.node_dependencies")
     try:
-        dependencies = ComfyNodeModelDependencyScanner(logger=logger).scan()
+        dependencies = CachedNodeModelDependencyScanner(
+            cache_path=cache_root / "node_model_dependencies.json",
+            scanner=ComfyNodeModelDependencyScanner(logger=logger),
+            logger=logger,
+        ).scan()
     except ModuleNotFoundError as exc:
         logger.debug(
             "Comfy node dependency index unavailable outside host runtime",
@@ -486,7 +544,9 @@ def build_prompt_queue_services(
         execution_module=execution_runtime,
         optimizer=PromptGraphOptimizer(
             logger=optimizer_logger,
-            node_definitions=load_comfy_node_definitions(optimizer_logger),
+            node_definitions=LazyNodeDefinitionProvider(
+                lambda: load_comfy_node_definitions(optimizer_logger)
+            ),
         ),
         logger=get_logger("prompt_queue.comfy"),
         run_context_store=run_context_store,
@@ -517,41 +577,81 @@ def build_backend_services(
 ) -> BackendServices:
     """Build all application services for Substitute BackEnd."""
 
+    started_at = perf_counter()
+    phase_started_at = started_at
+    phase_timings: dict[str, float] = {}
+
+    def record_phase(name: str) -> None:
+        """Record one backend service construction phase for startup diagnostics."""
+
+        nonlocal phase_started_at
+        now = perf_counter()
+        phase_timings[name] = round((now - phase_started_at) * 1000, 3)
+        phase_started_at = now
+
     diagnostics = diagnostics_from_environment(get_logger("diagnostics"))
+    record_phase("diagnostics")
     cube_library = build_cube_library_services(extension_root, diagnostics)
+    record_phase("cube_library")
     run_context_store = SubstituteRunContextStore()
+    record_phase("run_context_store")
+    model_metadata = build_model_metadata_services(
+        extension_root,
+        model_roots=model_roots,
+        prompt_server=prompt_server,
+    )
+    record_phase("model_metadata")
+    cube_library_change_monitor = build_cube_library_change_monitor(
+        cube_library,
+        diagnostics,
+        prompt_server=prompt_server,
+    )
+    record_phase("cube_library_change_monitor")
+    environment = build_environment_management_services(extension_root)
+    record_phase("environment")
+    model_loading = build_model_loading_services(prompt_server=prompt_server)
+    record_phase("model_loading")
+    downloads = build_download_services(prompt_server=prompt_server)
+    record_phase("downloads")
+    resolved_preview_assets = preview_assets or build_preview_asset_services()
+    record_phase("preview_assets")
+    cube_outputs = build_cube_output_services(
+        extension_root,
+        prompt_server=prompt_server,
+        run_context_store=run_context_store,
+    )
+    record_phase("cube_outputs")
+    prompt_queue = build_prompt_queue_services(
+        extension_root,
+        prompt_server=prompt_server,
+        run_context_store=run_context_store,
+    )
+    record_phase("prompt_queue")
+    preview_metadata_enrichment = PreviewMetadataEnrichmentInstaller(
+        prompt_server=prompt_server or object(),
+        run_context_store=run_context_store,
+        logger=get_logger("preview_routing.metadata"),
+    )
+    record_phase("preview_metadata_enrichment")
+    sugar_compile = build_sugar_compile_services(cube_library)
+    record_phase("sugar_compile")
+    _log_startup_timing(
+        "backend_services",
+        total_duration_ms=round((perf_counter() - started_at) * 1000, 3),
+        phase_timings=phase_timings,
+    )
     return BackendServices(
-        model_metadata=build_model_metadata_services(
-            extension_root,
-            model_roots=model_roots,
-            prompt_server=prompt_server,
-        ),
+        model_metadata=model_metadata,
         cube_library=cube_library,
-        cube_library_change_monitor=build_cube_library_change_monitor(
-            cube_library,
-            diagnostics,
-            prompt_server=prompt_server,
-        ),
-        environment=build_environment_management_services(extension_root),
-        model_loading=build_model_loading_services(prompt_server=prompt_server),
-        downloads=build_download_services(prompt_server=prompt_server),
-        preview_assets=preview_assets or build_preview_asset_services(),
-        cube_outputs=build_cube_output_services(
-            extension_root,
-            prompt_server=prompt_server,
-            run_context_store=run_context_store,
-        ),
-        prompt_queue=build_prompt_queue_services(
-            extension_root,
-            prompt_server=prompt_server,
-            run_context_store=run_context_store,
-        ),
-        preview_metadata_enrichment=PreviewMetadataEnrichmentInstaller(
-            prompt_server=prompt_server or object(),
-            run_context_store=run_context_store,
-            logger=get_logger("preview_routing.metadata"),
-        ),
-        sugar_compile=build_sugar_compile_services(cube_library),
+        cube_library_change_monitor=cube_library_change_monitor,
+        environment=environment,
+        model_loading=model_loading,
+        downloads=downloads,
+        preview_assets=resolved_preview_assets,
+        cube_outputs=cube_outputs,
+        prompt_queue=prompt_queue,
+        preview_metadata_enrichment=preview_metadata_enrichment,
+        sugar_compile=sugar_compile,
         diagnostics=diagnostics,
     )
 
@@ -562,17 +662,77 @@ def register_extension(
 ) -> BackendRouteHandlers:
     """Build services and register Substitute BackEnd routes."""
 
+    started_at = perf_counter()
+    phase_started_at = started_at
+    phase_timings: dict[str, float] = {}
+
+    def record_phase(name: str) -> None:
+        """Record one Comfy host registration phase for startup diagnostics."""
+
+        nonlocal phase_started_at
+        now = perf_counter()
+        phase_timings[name] = round((now - phase_started_at) * 1000, 3)
+        phase_started_at = now
+
     prompt_server_instance = _resolve_prompt_server_instance(prompt_server)
+    record_phase("resolve_prompt_server")
     services = build_backend_services(extension_root, prompt_server=prompt_server_instance)
+    record_phase("build_backend_services")
     services.model_loading.patch_installer.install()
+    record_phase("install_model_loading_patch")
     services.model_loading.log_observer.install()
+    record_phase("install_model_loading_log_observer")
     services.downloads.patch_installer.install()
+    record_phase("install_download_patch")
     services.preview_metadata_enrichment.install()
+    record_phase("install_preview_metadata_enrichment")
     services.cube_outputs.registration.register()
+    record_phase("register_cube_outputs")
     _schedule_cube_output_registration_retry(services.cube_outputs.registration)
+    record_phase("schedule_cube_output_retry")
     services.cube_library_change_monitor.start()
+    record_phase("start_cube_library_change_monitor")
     services.model_metadata.changes.start()
-    return register_routes(prompt_server, services)
+    record_phase("start_model_folder_change_monitor")
+    route_handlers = register_routes(prompt_server, services)
+    record_phase("register_routes")
+    _log_startup_timing(
+        "register_extension",
+        total_duration_ms=round((perf_counter() - started_at) * 1000, 3),
+        phase_timings=phase_timings,
+    )
+    return route_handlers
+
+
+def _log_startup_timing(
+    operation: str,
+    *,
+    total_duration_ms: float,
+    phase_timings: Mapping[str, float],
+) -> None:
+    """Emit opt-in startup construction timings for harness measurements."""
+
+    if not _substitute_startup_diagnostics_enabled():
+        return
+    fields = " ".join(f"{key}={value}" for key, value in sorted(phase_timings.items()))
+    get_logger("startup").info(
+        "Substitute startup diagnostic event=substitute_startup_timing "
+        "operation=%s total_duration_ms=%s %s",
+        operation,
+        total_duration_ms,
+        fields,
+    )
+
+
+def _substitute_startup_diagnostics_enabled() -> bool:
+    """Return whether startup timing diagnostics should be logged."""
+
+    enabled = {
+        value.strip().casefold()
+        for value in os.environ.get(_DIAGNOSTICS_ENV_VAR, "").split(",")
+        if value.strip()
+    }
+    return _ALL_DIAGNOSTICS in enabled or _STARTUP_DIAGNOSTICS in enabled
 
 
 def _resolve_prompt_server_instance(

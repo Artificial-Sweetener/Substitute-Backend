@@ -20,10 +20,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from pathlib import Path
 from typing import cast
+
+import pytest
 
 from substitute_backend.features.prompt_queue.application import PromptGraphOptimizer
 from substitute_backend.features.prompt_queue.application.node_definitions import (
+    LazyNodeDefinitionProvider,
     NodeDefinition,
     NodeDefinitionProvider,
 )
@@ -46,6 +50,7 @@ from substitute_backend.features.prompt_queue.infrastructure.comfy_prompt_queue 
     ExecutionModuleLike,
     PromptServerRuntimeLike,
 )
+from substitute_backend.host import extension as extension_module
 
 
 def test_graph_optimizer_dedupes_lora_schedule_branch_but_not_prompt_text() -> None:
@@ -741,6 +746,49 @@ def _resource_optimizer() -> PromptGraphOptimizer:
                 ),
             )
         ),
+    )
+
+
+def test_lazy_node_definition_provider_defers_factory_until_metadata_query() -> None:
+    """Lazy node metadata should not evaluate Comfy node classes during startup."""
+
+    calls = 0
+
+    def factory() -> NodeDefinitionProvider:
+        """Return one provider while recording resolution."""
+
+        nonlocal calls
+        calls += 1
+        return NodeDefinitionProvider(
+            (NodeDefinition(class_type="TestNode", output_types=("IMAGE",)),)
+        )
+
+    provider = LazyNodeDefinitionProvider(factory)
+
+    assert calls == 0
+    assert provider.definition_for_class("TestNode") is not None
+    assert provider.class_types() == ("TestNode",)
+    assert calls == 1
+
+
+def test_build_prompt_queue_services_defers_comfy_node_definition_loading(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Prompt queue service construction should not scan node definitions."""
+
+    def fail_loader(logger: logging.Logger) -> NodeDefinitionProvider:
+        """Fail if service construction eagerly loads Comfy node metadata."""
+
+        _ = logger
+        msg = "node definitions should load lazily"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(extension_module, "load_comfy_node_definitions", fail_loader)
+
+    extension_module.build_prompt_queue_services(
+        tmp_path,
+        execution_module=cast("ExecutionModuleLike", _Execution([])),
     )
 
 

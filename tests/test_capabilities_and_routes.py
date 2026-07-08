@@ -18,6 +18,7 @@
 import asyncio
 import importlib.util
 import json
+import logging
 import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
@@ -166,6 +167,39 @@ def test_register_routes_uses_expected_surface(tmp_path: Path) -> None:
         ("GET", "/substitute/v1/preview-assets/taesd/status"),
         ("POST", "/substitute/v1/preview-assets/taesd/ensure"),
     ]
+
+
+def test_build_backend_services_logs_startup_timing_when_enabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Startup diagnostics should expose service construction phase timing."""
+
+    provider = StaticModelRootsProvider({"loras": (tmp_path,)}, {".safetensors"})
+    monkeypatch.setenv("SUBSTITUTE_BACKEND_DIAGNOSTICS", "startup")
+    caplog.set_level(logging.INFO, logger="substitute_backend.startup")
+
+    build_backend_services(
+        tmp_path,
+        model_roots=provider,
+        preview_assets=_preview_asset_services(tmp_path),
+    )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "event=substitute_startup_timing operation=backend_services" in message
+        and "model_metadata=" in message
+        and "prompt_queue=" in message
+        for message in messages
+    )
+    assert any(
+        "event=substitute_startup_timing operation=model_metadata_services" in message
+        and "approved_roots=" in message
+        and "node_dependency_index=" in message
+        and "change_monitor=" in message
+        for message in messages
+    )
 
 
 def test_capabilities_payload_advertises_preview_assets(

@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 
@@ -63,3 +63,36 @@ class NodeDefinitionProvider:
         """Return cached class names in deterministic order."""
 
         return tuple(sorted(self._definitions))
+
+
+class LazyNodeDefinitionProvider(NodeDefinitionProvider):
+    """Defer expensive Comfy node metadata loading until optimization needs it."""
+
+    def __init__(self, factory: Callable[[], NodeDefinitionProvider]) -> None:
+        """Store a provider factory without evaluating it during startup."""
+
+        super().__init__()
+        self._factory = factory
+        self._resolved: NodeDefinitionProvider | None = None
+
+    def definition_for_class(self, class_type: str) -> NodeDefinition | None:
+        """Return metadata from the lazily resolved provider."""
+
+        return self._provider().definition_for_class(class_type)
+
+    def definition_count(self) -> int:
+        """Return the resolved provider's definition count."""
+
+        return self._provider().definition_count()
+
+    def class_types(self) -> tuple[str, ...]:
+        """Return class names from the resolved provider."""
+
+        return self._provider().class_types()
+
+    def _provider(self) -> NodeDefinitionProvider:
+        """Resolve the underlying provider once."""
+
+        if self._resolved is None:
+            self._resolved = self._factory()
+        return self._resolved

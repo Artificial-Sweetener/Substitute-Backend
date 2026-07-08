@@ -17,8 +17,11 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Protocol, TypeVar, runtime_checkable
 
 from aiohttp import web
@@ -73,6 +76,10 @@ from substitute_backend.infrastructure.diagnostics import DiagnosticLogger
 from substitute_backend.infrastructure.logging import get_logger
 
 _RouteHandler = TypeVar("_RouteHandler", bound=Callable[..., object])
+_DIAGNOSTICS_ENV_VAR = "SUBSTITUTE_BACKEND_DIAGNOSTICS"
+_CAPABILITIES_DIAGNOSTICS = "capabilities"
+_CUBE_LIBRARY_DIAGNOSTICS = "cube-library"
+_ALL_DIAGNOSTICS = "all"
 
 
 class RouteRegistrar(Protocol):
@@ -281,6 +288,18 @@ def _build_capabilities_handler(
         """Return backend capabilities with all feature payloads."""
 
         _ = request
+        started_at = perf_counter()
+        phase_started_at = started_at
+        phase_timings: dict[str, float] = {}
+
+        def record_phase(name: str) -> None:
+            """Record elapsed milliseconds for one capability route phase."""
+
+            nonlocal phase_started_at
+            now = perf_counter()
+            phase_timings[name] = round((now - phase_started_at) * 1000, 3)
+            phase_started_at = now
+
         try:
             try:
                 services.cube_outputs.registration.register()
@@ -289,7 +308,9 @@ def _build_capabilities_handler(
                     "cube-output registration failed during capability probe",
                     extra={"operation": "capabilities", "error": repr(exc)},
                 )
+            record_phase("cube_output_registration")
             payload = services.model_metadata.capabilities.get_capabilities().to_payload()
+            record_phase("model_metadata_capabilities")
             features = payload.get("features")
             feature_list = (
                 [item for item in features if isinstance(item, str)]
@@ -309,14 +330,17 @@ def _build_capabilities_handler(
             if "visual-routing" not in feature_list:
                 feature_list.append("visual-routing")
             sugar_compile_capabilities = services.sugar_compile.compile.capabilities()
+            record_phase("sugar_compile_capabilities")
             if sugar_compile_capabilities.available and "sugar-compile" not in feature_list:
                 feature_list.append("sugar-compile")
             feature_payload: list[JsonValue] = list(feature_list)
             payload["features"] = feature_payload
             payload["cubeLibrary"] = services.cube_library.library.capabilities()
+            record_phase("cube_library_capabilities")
             payload["environmentManagement"] = (
                 services.environment.environment.get_capabilities().to_payload()
             )
+            record_phase("environment_capabilities")
             payload["modelLoadingTelemetry"] = {
                 "supported": True,
                 "eventType": "substitute_model_load_progress",
@@ -350,6 +374,12 @@ def _build_capabilities_handler(
                 "previewMetadataKey": "substitute",
             }
             payload["sugarCompile"] = sugar_compile_capabilities.to_payload()
+            record_phase("static_payloads")
+            _log_capabilities_timing(
+                logger,
+                total_duration_ms=round((perf_counter() - started_at) * 1000, 3),
+                phase_timings=phase_timings,
+            )
             return web.json_response(payload)
         except Exception as exc:
             logger.exception(
@@ -365,6 +395,39 @@ def _build_capabilities_handler(
             )
 
     return capabilities
+
+
+def _log_capabilities_timing(
+    logger: logging.Logger,
+    *,
+    total_duration_ms: float,
+    phase_timings: dict[str, float],
+) -> None:
+    """Emit opt-in capability route timing for startup harness runs."""
+
+    if not _substitute_diagnostics_enabled(
+        _CAPABILITIES_DIAGNOSTICS,
+        _CUBE_LIBRARY_DIAGNOSTICS,
+    ):
+        return
+    fields = " ".join(f"{key}={value}" for key, value in sorted(phase_timings.items()))
+    logger.info(
+        "Substitute capabilities diagnostic event=substitute_capabilities_timing "
+        "total_duration_ms=%s %s",
+        total_duration_ms,
+        fields,
+    )
+
+
+def _substitute_diagnostics_enabled(*features: str) -> bool:
+    """Return whether any requested Substitute diagnostics feature is enabled."""
+
+    enabled = {
+        value.strip().casefold()
+        for value in os.environ.get(_DIAGNOSTICS_ENV_VAR, "").split(",")
+        if value.strip()
+    }
+    return _ALL_DIAGNOSTICS in enabled or any(feature.casefold() in enabled for feature in features)
 
 
 def _resolve_routes(

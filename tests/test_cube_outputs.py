@@ -456,15 +456,22 @@ def test_registration_is_idempotent() -> None:
     """Registration should not duplicate observer delivery across repeated setup."""
 
     hook = _Hook()
+    resolve_count = 0
+
+    def resolve() -> SugarCubesHookResolution:
+        """Return the hook while counting resolver calls."""
+
+        nonlocal resolve_count
+        resolve_count += 1
+        return SugarCubesHookResolution(
+            status=SugarCubesHookResolutionStatus.RESOLVED,
+            message="resolved",
+            hook=hook,
+        )
+
     resolver = cast(
         Any,
-        types.SimpleNamespace(
-            resolve=lambda: SugarCubesHookResolution(
-                status=SugarCubesHookResolutionStatus.RESOLVED,
-                message="resolved",
-                hook=hook,
-            )
-        ),
+        types.SimpleNamespace(resolve=resolve),
     )
     observer = SubstituteCubeOutputObserver(
         publisher=PromptServerCubeOutputPublisher(
@@ -482,6 +489,7 @@ def test_registration_is_idempotent() -> None:
     assert registration.register().status is CubeOutputRegistrationStatus.REGISTERED
     assert registration.register().status is CubeOutputRegistrationStatus.ALREADY_REGISTERED
     assert hook.registered == [observer]
+    assert resolve_count == 1
 
 
 def test_registration_retries_after_pending_resolution() -> None:

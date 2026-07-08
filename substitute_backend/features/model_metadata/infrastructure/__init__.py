@@ -17,9 +17,11 @@
 
 from .comfy_folder_cache import ComfyFolderCacheInvalidator
 from .comfy_node_model_dependencies import ComfyNodeModelDependencyScanner
+from .node_dependency_cache import CachedNodeModelDependencyScanner
 from .prompt_server_model_catalog_publisher import PromptServerModelCatalogPublisher
 
 __all__ = [
+    "CachedNodeModelDependencyScanner",
     "ComfyFolderCacheInvalidator",
     "ComfyNodeModelDependencyScanner",
     "PromptServerModelCatalogPublisher",

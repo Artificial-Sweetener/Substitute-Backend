@@ -18,6 +18,9 @@
 from substitute_backend.features.prompt_queue.application.graph_optimizer import (
     PromptGraphOptimizer,
 )
+from substitute_backend.features.prompt_queue.application.node_definitions import (
+    LazyNodeDefinitionProvider,
+)
 from substitute_backend.features.prompt_queue.application.prompt_queue_service import (
     PromptQueueService,
 )
@@ -27,6 +30,7 @@ from substitute_backend.features.prompt_queue.application.run_context_store impo
 from substitute_backend.features.prompt_queue.application.services import PromptQueueServices
 
 __all__ = [
+    "LazyNodeDefinitionProvider",
     "PromptGraphOptimizer",
     "PromptQueueService",
     "PromptQueueServices",

@@ -324,6 +324,16 @@ class SugarCubesCubeOutputRegistration:
     def register(self) -> CubeOutputRegistrationResult:
         """Register the Substitute observer when the canonical SugarCubes hook exists."""
 
+        if self._registered_hook_identity is not None:
+            self._logger.debug(
+                "SugarCubes cube-output observer already registered",
+                extra={"hook_identity": self._registered_hook_identity},
+            )
+            return CubeOutputRegistrationResult(
+                status=CubeOutputRegistrationStatus.ALREADY_REGISTERED,
+                message="SugarCubes cube-output observer is already registered.",
+            )
+
         resolution = self._hook_resolver.resolve()
         if resolution.status is SugarCubesHookResolutionStatus.PENDING:
             self._logger.debug(
@@ -350,15 +360,6 @@ class SugarCubesCubeOutputRegistration:
             return CubeOutputRegistrationResult(
                 status=CubeOutputRegistrationStatus.FAILED,
                 message=message,
-            )
-        if self._registered_hook_identity == hook.identity:
-            self._logger.debug(
-                "SugarCubes cube-output observer already registered",
-                extra={"hook_identity": hook.identity},
-            )
-            return CubeOutputRegistrationResult(
-                status=CubeOutputRegistrationStatus.ALREADY_REGISTERED,
-                message="SugarCubes cube-output observer is already registered.",
             )
         try:
             hook.register_cube_output_observer(self._observer)
