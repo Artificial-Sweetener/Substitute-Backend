@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.6.0...v1.6.1) (2026-07-08)
+
+
+### Performance Improvements
+
+* **startup:** reuse SugarCubes services and cache dependency scans ([5a96961](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/5a969612dee9b7f01747779deb73d3ff056ba0cf))
+
 # [1.6.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.5.1...v1.6.0) (2026-06-17)
 
 
