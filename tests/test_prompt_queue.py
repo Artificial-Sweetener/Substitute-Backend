@@ -588,6 +588,50 @@ def test_comfy_queue_adapter_preserves_comfy_validation_failure_shape() -> None:
     assert prompt_server.prompt_queue.items == []
 
 
+def test_comfy_queue_adapter_rejects_partial_validation_before_queueing() -> None:
+    """Any invalid output branch makes Substitute recipe execution atomic."""
+
+    events: list[str] = []
+    prompt_server = _PromptServer(events)
+    node_errors = {
+        "24": {
+            "errors": [
+                {
+                    "type": "value_above_max",
+                    "message": "Value 2048.0 bigger than max of 1.0",
+                    "details": "white_point",
+                    "extra_info": {"input_name": "white_point"},
+                }
+            ],
+            "dependent_outputs": ["24", "35", "42"],
+            "class_type": "SimpleSyrup.PromptSEGSWithSAM",
+        }
+    }
+    adapter = ComfyPromptQueueAdapter(
+        prompt_server=cast("PromptServerRuntimeLike", prompt_server),
+        execution_module=cast(
+            "ExecutionModuleLike",
+            _Execution(events, node_errors=node_errors),
+        ),
+        optimizer=PromptGraphOptimizer(logger=logging.getLogger("tests.prompt_queue.optimizer")),
+        logger=logging.getLogger("tests.prompt_queue.adapter"),
+    )
+
+    result = asyncio.run(adapter.queue_prompt({"prompt": _lora_prompt("cat", "dog")}))
+
+    assert result.status == 400
+    assert result.payload == {
+        "error": {
+            "type": "partial_prompt_validation_failed",
+            "message": "One or more recipe output branches failed validation.",
+            "details": "Nothing was queued because Substitute recipes execute atomically.",
+            "extra_info": {},
+        },
+        "node_errors": node_errors,
+    }
+    assert prompt_server.prompt_queue.items == []
+
+
 def test_comfy_queue_adapter_fails_open_after_optimizer_error() -> None:
     """Optimizer failures should queue the original post-replacement prompt."""
 
@@ -1131,11 +1175,18 @@ class _Execution:
 
     SENSITIVE_EXTRA_DATA_KEYS: tuple[str, ...] = ("auth_token_comfy_org",)
 
-    def __init__(self, events: list[str], *, valid: bool = True) -> None:
+    def __init__(
+        self,
+        events: list[str],
+        *,
+        valid: bool = True,
+        node_errors: object | None = None,
+    ) -> None:
         """Configure validation behavior."""
 
         self._events = events
         self._valid = valid
+        self._node_errors = node_errors if node_errors is not None else {}
 
     async def validate_prompt(
         self,
@@ -1149,7 +1200,7 @@ class _Execution:
         self._events.append("validate")
         if not self._valid:
             return False, {"type": "invalid_prompt", "message": "invalid"}, [], {"1": "bad"}
-        return True, None, ["9"], {}
+        return True, None, ["9"], self._node_errors
 
 
 class _FailingOptimizer(PromptGraphOptimizer):

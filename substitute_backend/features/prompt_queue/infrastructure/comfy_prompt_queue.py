@@ -145,6 +145,29 @@ class ComfyPromptQueueAdapter:
                 payload={"error": valid[1], "node_errors": valid[3]},
                 status=400,
             )
+        if _has_node_errors(valid[3]):
+            self._logger.warning(
+                "Prompt output branch validation failed; rejecting atomic recipe.",
+                extra={
+                    "operation": "prompt_queue_validate_atomic",
+                    "prompt_id": prompt_id,
+                    "node_errors": valid[3],
+                },
+            )
+            return QueuePromptResult(
+                payload={
+                    "error": {
+                        "type": "partial_prompt_validation_failed",
+                        "message": ("One or more recipe output branches failed validation."),
+                        "details": (
+                            "Nothing was queued because Substitute recipes execute atomically."
+                        ),
+                        "extra_info": {},
+                    },
+                    "node_errors": valid[3],
+                },
+                status=400,
+            )
         extra_data = self._extra_data(json_data)
         substitute_context = parse_substitute_run_context(extra_data.get("substitute"))
         client_id = json_data.get("client_id")
@@ -220,3 +243,13 @@ def _number_from_value(value: object) -> float:
         return float(value)
     msg = "Queue number must be numeric."
     raise TypeError(msg)
+
+
+def _has_node_errors(value: object) -> bool:
+    """Return whether Comfy reported any invalid nodes or output branches."""
+
+    if isinstance(value, Mapping):
+        return bool(value)
+    if isinstance(value, tuple | list | set | frozenset):
+        return bool(value)
+    return value is not None
