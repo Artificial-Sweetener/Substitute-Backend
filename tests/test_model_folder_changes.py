@@ -59,6 +59,7 @@ from substitute_backend.features.model_metadata.infrastructure import (
     PromptServerModelCatalogPublisher,
 )
 from substitute_backend.features.model_metadata.infrastructure.comfy_model_roots import (
+    ComfyModelRootsProvider,
     StaticModelRootsProvider,
 )
 from substitute_backend.infrastructure.logging import get_logger
@@ -141,6 +142,67 @@ class _FolderPathsModule(ModuleType):
 
     filename_list_cache: dict[str, list[str]]
     cache_helper: object
+
+
+class _CachedFolderPathsModule(ModuleType):
+    """Emulate Comfy filename discovery with a persistent per-kind cache."""
+
+    def __init__(self, root: Path) -> None:
+        """Register one diffusion-model root and an initially empty cache."""
+
+        super().__init__("folder_paths")
+        self._root = root
+        self.folder_names_and_paths = {"diffusion_models": ([str(root)], {".safetensors"})}
+        self.filename_list_cache: dict[str, list[str]] = {}
+        self.cache_helper = type(
+            "CacheHelper",
+            (),
+            {"clear": lambda self: None},
+        )()
+
+    def get_folder_paths(self, folder_name: str) -> list[str]:
+        """Return the configured root for the registered model kind."""
+
+        if folder_name != "diffusion_models":
+            return []
+        return [str(self._root)]
+
+    def get_filename_list(self, folder_name: str) -> list[str]:
+        """Return and retain the first recursive filename scan for one kind."""
+
+        cached = self.filename_list_cache.get(folder_name)
+        if cached is not None:
+            return list(cached)
+        values = [
+            str(path.relative_to(self._root)) for path in sorted(self._root.rglob("*.safetensors"))
+        ]
+        self.filename_list_cache[folder_name] = values
+        return list(values)
+
+    def get_full_path(self, folder_name: str, filename: str) -> str | None:
+        """Resolve cached choice values beneath the registered root."""
+
+        if folder_name != "diffusion_models":
+            return None
+        path = self._root / filename
+        return str(path) if path.is_file() else None
+
+
+class _DelegatingCacheInvalidator:
+    """Record invalidations while clearing a concrete Comfy cache."""
+
+    def __init__(self, delegate: ComfyFolderCacheInvalidator) -> None:
+        """Store the concrete invalidator and initialize call history."""
+
+        self._delegate = delegate
+        self.calls: list[tuple[str, ...]] = []
+
+    def invalidate(self, kinds: Iterable[str]) -> None:
+        """Record and forward one scoped invalidation."""
+
+        normalized = tuple(kinds)
+        self.calls.append(normalized)
+        self._delegate.invalidate(normalized)
 
 
 class _CountingDependencyScanner:
@@ -277,6 +339,53 @@ def test_monitor_publishes_stable_added_file_and_invalidates_changed_kind(
     assert event.affected_node_classes == ("LoraLoader",)
     assert publisher.events == [event]
     assert invalidator.calls == [("loras",)]
+
+
+def test_monitor_invalidates_warm_comfy_cache_before_discovering_added_model(
+    tmp_path: Path,
+) -> None:
+    """A warmed empty Comfy cache must not hide a newly added model file."""
+
+    root = tmp_path / "diffusion_models"
+    root.mkdir()
+    folder_paths = _CachedFolderPathsModule(root)
+    provider = ComfyModelRootsProvider(folder_paths)
+    snapshot_service = ModelFolderSnapshotService(provider)
+    publisher = _Publisher()
+    invalidator = _DelegatingCacheInvalidator(
+        ComfyFolderCacheInvalidator(
+            folder_paths=folder_paths,
+            logger=logging.getLogger("test"),
+        )
+    )
+    monitor = ModelFolderChangeMonitor(
+        model_roots=provider,
+        snapshot_service=snapshot_service,
+        publisher=publisher,
+        node_class_resolver=NodeModelDependencyIndex(
+            {"diffusion_models": ("SimpleSyrup.SimpleLoadAnima",)}
+        ),
+        cache_invalidator=invalidator,
+        logger=get_logger("test.model_folder_monitor"),
+        poll_interval_seconds=0.01,
+        debounce_seconds=0.0,
+        safety_scan_interval_seconds=999.0,
+    )
+
+    assert monitor.check_once() is None
+    assert folder_paths.filename_list_cache == {"diffusion_models": []}
+
+    anima_dir = root / "Anima"
+    anima_dir.mkdir()
+    model = anima_dir / "waiANIMA_v10Base10.safetensors"
+    model.write_bytes(b"model")
+    event = monitor.check_once()
+
+    assert event is not None
+    assert event.kinds == ("diffusion_models",)
+    assert [entry.value for entry in event.added] == [str(Path("Anima") / model.name)]
+    assert event.affected_node_classes == ("SimpleSyrup.SimpleLoadAnima",)
+    assert invalidator.calls == [("diffusion_models",)]
 
 
 def test_comfy_folder_cache_invalidator_removes_only_requested_kinds() -> None:

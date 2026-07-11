@@ -170,11 +170,13 @@ class ModelFolderChangeMonitor:
         if not dirty_kinds:
             return None
 
-        stable_snapshot = self._stable_dirty_snapshot(tuple(sorted(dirty_kinds)))
+        sorted_dirty_kinds = tuple(sorted(dirty_kinds))
+        self._cache_invalidator.invalidate(sorted_dirty_kinds)
+        stable_snapshot = self._stable_dirty_snapshot(sorted_dirty_kinds)
         if stable_snapshot is None:
             self._logger.debug(
                 "Model folder change deferred until files are stable",
-                extra={"dirty_kinds": tuple(sorted(dirty_kinds))},
+                extra={"dirty_kinds": sorted_dirty_kinds},
             )
             return None
         current = previous.replace_kinds(
@@ -188,7 +190,6 @@ class ModelFolderChangeMonitor:
         if not diff.has_changes:
             return None
         changed_kinds = diff.changed_kinds
-        self._cache_invalidator.invalidate(changed_kinds)
         affected_node_classes = self._affected_node_classes(changed_kinds)
         event = self._build_event(
             changed_kinds=changed_kinds,
