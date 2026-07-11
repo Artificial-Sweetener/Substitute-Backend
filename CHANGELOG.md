@@ -1,3 +1,11 @@
+## [1.6.2](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.6.1...v1.6.2) (2026-07-11)
+
+
+### Bug Fixes
+
+* **models:** invalidate caches before rescanning ([936927c](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/936927c9dd0559952c37b7022f98a4149d1fb645))
+* **queue:** reject partial prompt validation ([807cbc6](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/807cbc6e70197932ef82847f9e095fb44554186d))
+
 ## [1.6.1](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.6.0...v1.6.1) (2026-07-08)
 
 
