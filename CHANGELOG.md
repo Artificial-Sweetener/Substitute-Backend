@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.6.2...v1.7.0) (2026-07-16)
+
+
+### Features
+
+* **environment:** manage ComfyUI model roots ([94ef103](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/94ef103bb6ee899e41ba5b869ffa0a97c6e828b5))
+
 ## [1.6.2](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.6.1...v1.6.2) (2026-07-11)
 
 
