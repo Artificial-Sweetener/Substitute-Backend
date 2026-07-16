@@ -637,6 +637,11 @@ class _FakeRoutes:
 
         return self._record("POST", path)
 
+    def put(self, path: str) -> Any:
+        """Record a PUT handler."""
+
+        return self._record("PUT", path)
+
     def delete(self, path: str) -> Any:
         """Record a DELETE handler."""
 

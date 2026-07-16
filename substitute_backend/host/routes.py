@@ -91,6 +91,9 @@ class RouteRegistrar(Protocol):
     def post(self, path: str) -> Callable[[_RouteHandler], _RouteHandler]:
         """Return a decorator registering a POST handler."""
 
+    def put(self, path: str) -> Callable[[_RouteHandler], _RouteHandler]:
+        """Return a decorator registering a PUT handler."""
+
     def delete(self, path: str) -> Callable[[_RouteHandler], _RouteHandler]:
         """Return a decorator registering a DELETE handler."""
 
@@ -239,6 +242,8 @@ def register_routes(
     routes.post("/substitute/v1/cube-library/sync-and-check")(cube_library_handlers.sync_and_check)
     routes.get("/substitute/v1/environment/capabilities")(environment_handlers.capabilities)
     routes.get("/substitute/v1/environment/status")(environment_handlers.status)
+    routes.get("/substitute/v1/environment/model-root")(environment_handlers.get_model_root)
+    routes.put("/substitute/v1/environment/model-root")(environment_handlers.update_model_root)
     routes.get("/substitute/v1/environment/packages")(environment_handlers.list_packages)
     routes.get("/substitute/v1/environment/components")(environment_handlers.list_components)
     routes.post("/substitute/v1/environment/operations/plan")(environment_handlers.plan_operation)

@@ -46,6 +46,9 @@ from substitute_backend.features.environment_management.application.inventory_se
 from substitute_backend.features.environment_management.application.job_service import (
     JobService,
 )
+from substitute_backend.features.environment_management.application.model_root_service import (
+    ModelRootService,
+)
 from substitute_backend.features.environment_management.application.restart_service import (
     RestartService,
 )
@@ -78,6 +81,12 @@ from substitute_backend.features.environment_management.infrastructure import (
 )
 from substitute_backend.features.environment_management.infrastructure.job_store import (
     JobStore,
+)
+from substitute_backend.features.environment_management.infrastructure.model_root_runtime import (
+    ModelRootRuntime,
+)
+from substitute_backend.features.environment_management.infrastructure.model_root_store import (
+    ModelRootStore,
 )
 from substitute_backend.features.environment_management.infrastructure.python_environment import (
     PythonEnvironmentInspector,
@@ -127,6 +136,20 @@ class UnsupportedRestartCoordinator(RestartCoordinator):
             supported=False,
             unavailable_reason="Restart is not supported in this test.",
         )
+
+
+class StaticModelRootRuntime(ModelRootRuntime):
+    """Return a fixed active model root for service tests."""
+
+    def __init__(self, active_root: Path) -> None:
+        """Store the active root."""
+
+        self._active_root = active_root
+
+    def active_model_root(self) -> Path:
+        """Return the configured active root."""
+
+        return self._active_root.resolve()
 
 
 class StaticPipInspector(PipInspector):
@@ -1007,6 +1030,47 @@ def _maintenance_plan_service(
     )
 
 
+def test_model_root_routes_report_and_persist_host_state(tmp_path: Path) -> None:
+    """Environment routes expose a typed model-root mutation contract."""
+
+    services = _environment_services(tmp_path, StaticPipInspector())
+    handlers = build_environment_route_handlers(
+        services,
+        get_logger("tests.environment.routes"),
+    )
+    custom_root = tmp_path / "shared-models"
+
+    async def run_routes() -> None:
+        """Exercise model-root GET and update handlers."""
+
+        initial = await handlers.get_model_root(cast("web.Request", object()))
+        initial_payload = _response_payload(initial)
+        assert initial_payload["usesDefault"] is True
+        assert initial_payload["restartRequired"] is False
+
+        updated = await handlers.update_model_root(
+            cast(
+                "web.Request",
+                FakeJsonRequest({"mode": "custom", "path": str(custom_root)}),
+            )
+        )
+        updated_payload = _response_payload(updated)
+        assert updated_payload["configuredModelRoot"] == str(custom_root.resolve())
+        assert updated_payload["restartRequired"] is True
+
+        invalid = await handlers.update_model_root(
+            cast(
+                "web.Request",
+                FakeJsonRequest({"mode": "custom", "path": "relative/models"}),
+            )
+        )
+        assert invalid.status == 400
+        error = cast("JsonObject", _response_payload(invalid)["error"])
+        assert error["code"] == "invalid-model-root"
+
+    asyncio.run(run_routes())
+
+
 def _expected_triton_requirement() -> str:
     """Return the platform-specific Triton requirement expected by the service."""
 
@@ -1047,6 +1111,11 @@ def _environment_services(
             jobs=jobs,
             coordinator=SupportedRestartCoordinator(),
             logger=get_logger("tests.environment.restart"),
+        ),
+        model_root=ModelRootService(
+            comfy_root=tmp_path,
+            store=ModelRootStore(tmp_path),
+            runtime=StaticModelRootRuntime(tmp_path / "models"),
         ),
     )
 

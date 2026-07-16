@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "substitute-backend"
 description = "Backend liaison services for SugarSubstitute and ComfyUI."
-version = "1.6.2"
+version = "1.7.0"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
@@ -30,6 +30,9 @@ dev = [
 [project.urls]
 Repository = "https://github.com/Artificial-Sweetener/Substitute-BackEnd"
 "Bug Tracker" = "https://github.com/Artificial-Sweetener/Substitute-BackEnd/issues"
+
+[tool.setuptools]
+py-modules = ["substitute_backend_prestartup"]
 
 [tool.comfy]
 PublisherId = "artificialsweetener"

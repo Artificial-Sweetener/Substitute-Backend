@@ -68,6 +68,11 @@ class FakeRoutes:
 
         return self._record("POST", path)
 
+    def put(self, path: str) -> Callable[[_RouteHandler], _RouteHandler]:
+        """Record a PUT route registration."""
+
+        return self._record("PUT", path)
+
     def delete(self, path: str) -> Callable[[_RouteHandler], _RouteHandler]:
         """Record a DELETE route registration."""
 
@@ -152,6 +157,8 @@ def test_register_routes_uses_expected_surface(tmp_path: Path) -> None:
         ("POST", "/substitute/v1/cube-library/sync-and-check"),
         ("GET", "/substitute/v1/environment/capabilities"),
         ("GET", "/substitute/v1/environment/status"),
+        ("GET", "/substitute/v1/environment/model-root"),
+        ("PUT", "/substitute/v1/environment/model-root"),
         ("GET", "/substitute/v1/environment/packages"),
         ("GET", "/substitute/v1/environment/components"),
         ("POST", "/substitute/v1/environment/operations/plan"),

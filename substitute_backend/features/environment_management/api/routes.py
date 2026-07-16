@@ -27,6 +27,7 @@ from substitute_backend.api.errors import BackendHttpError, json_error
 from substitute_backend.features.environment_management.application.services import (
     EnvironmentManagementServices,
 )
+from substitute_backend.features.environment_management.domain.model_root import ModelRootMode
 
 RouteHandler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
@@ -37,6 +38,8 @@ class EnvironmentRouteHandlers:
 
     capabilities: RouteHandler
     status: RouteHandler
+    get_model_root: RouteHandler
+    update_model_root: RouteHandler
     list_packages: RouteHandler
     list_components: RouteHandler
     plan_operation: RouteHandler
@@ -82,6 +85,44 @@ def build_environment_route_handlers(
                     message="Environment status unavailable.",
                     status=500,
                     code="environment-status-unavailable",
+                )
+            )
+
+    async def get_model_root(request: web.Request) -> web.Response:
+        """Return persisted and active Comfy model-root state."""
+
+        _ = request
+        try:
+            return web.json_response(services.model_root.get_status().to_payload())
+        except (OSError, ValueError) as exc:
+            logger.warning(
+                "model-root status unavailable",
+                extra={"operation": "model-root-status", "error": repr(exc)},
+            )
+            return json_error(
+                BackendHttpError(
+                    message="Model-root configuration could not be read.",
+                    status=500,
+                    code="model-root-status-unavailable",
+                )
+            )
+
+    async def update_model_root(request: web.Request) -> web.Response:
+        """Persist the model root that ComfyUI will use after restart."""
+
+        try:
+            body = await _json_object_body(request)
+            mode, raw_path = _parse_model_root_update(body)
+            status = services.model_root.configure(mode, raw_path)
+            return web.json_response(status.to_payload())
+        except BackendHttpError as exc:
+            return json_error(exc)
+        except (OSError, ValueError) as exc:
+            return json_error(
+                BackendHttpError(
+                    message=str(exc),
+                    status=400,
+                    code="invalid-model-root",
                 )
             )
 
@@ -302,6 +343,8 @@ def build_environment_route_handlers(
     return EnvironmentRouteHandlers(
         capabilities=capabilities,
         status=status,
+        get_model_root=get_model_root,
+        update_model_root=update_model_root,
         list_packages=list_packages,
         list_components=list_components,
         plan_operation=plan_operation,
@@ -328,6 +371,36 @@ async def _json_object_body(request: web.Request) -> dict[str, object]:
             code="invalid-operation-plan-request",
         )
     return body
+
+
+def _parse_model_root_update(
+    body: dict[str, object],
+) -> tuple[ModelRootMode, str | None]:
+    """Parse one model-root update without leaking untyped request data."""
+
+    raw_mode = body.get("mode")
+    if not isinstance(raw_mode, str):
+        raise BackendHttpError(
+            message="Model-root mode is required.",
+            status=400,
+            code="invalid-model-root",
+        )
+    try:
+        mode = ModelRootMode(raw_mode)
+    except ValueError as exc:
+        raise BackendHttpError(
+            message="Model-root mode must be 'default' or 'custom'.",
+            status=400,
+            code="invalid-model-root",
+        ) from exc
+    raw_path = body.get("path")
+    if raw_path is not None and not isinstance(raw_path, str):
+        raise BackendHttpError(
+            message="Model-root path must be a string.",
+            status=400,
+            code="invalid-model-root",
+        )
+    return mode, raw_path
 
 
 def _required_int(data: dict[str, object], key: str) -> int:

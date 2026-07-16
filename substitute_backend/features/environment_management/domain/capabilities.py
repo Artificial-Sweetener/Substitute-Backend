@@ -31,6 +31,7 @@ class EnvironmentFeature(StrEnum):
     RESTART = "restart"
     OPERATION_PLANNING = "operation-planning"
     PACKAGE_MUTATION = "package-mutation"
+    MODEL_ROOT_MANAGEMENT = "model-root-management"
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class EnvironmentCapabilities:
     restart_supported: bool
     package_mutation_supported: bool
     operation_planning_supported: bool
+    model_root_management_supported: bool
     restart_unavailable_reason: str | None = None
 
     def to_payload(self) -> JsonObject:
@@ -53,6 +55,7 @@ class EnvironmentCapabilities:
             "restartSupported": self.restart_supported,
             "packageMutationSupported": self.package_mutation_supported,
             "operationPlanningSupported": self.operation_planning_supported,
+            "modelRootManagementSupported": self.model_root_management_supported,
         }
         if self.restart_unavailable_reason is not None:
             payload["restartUnavailableReason"] = self.restart_unavailable_reason

@@ -62,6 +62,9 @@ from substitute_backend.features.environment_management.application.inventory_se
 from substitute_backend.features.environment_management.application.job_service import (
     JobService,
 )
+from substitute_backend.features.environment_management.application.model_root_service import (
+    ModelRootService,
+)
 from substitute_backend.features.environment_management.application.restart_service import (
     RestartService,
 )
@@ -75,6 +78,12 @@ from substitute_backend.features.environment_management.infrastructure import (
     PipInspector,
 )
 from substitute_backend.features.environment_management.infrastructure.job_store import JobStore
+from substitute_backend.features.environment_management.infrastructure.model_root_runtime import (
+    ComfyModelRootRuntime,
+)
+from substitute_backend.features.environment_management.infrastructure.model_root_store import (
+    ModelRootStore,
+)
 from substitute_backend.features.environment_management.infrastructure.python_environment import (
     PythonEnvironmentInspector,
 )
@@ -366,6 +375,11 @@ def build_environment_management_services(extension_root: Path) -> EnvironmentMa
             jobs=jobs,
             coordinator=restart_coordinator,
             logger=get_logger("environment.restart"),
+        ),
+        model_root=ModelRootService(
+            comfy_root=comfy_root,
+            store=ModelRootStore(comfy_root),
+            runtime=ComfyModelRootRuntime(),
         ),
     )
 

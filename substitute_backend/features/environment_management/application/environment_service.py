@@ -50,6 +50,7 @@ class EnvironmentService:
             EnvironmentFeature.PACKAGE_INVENTORY,
             EnvironmentFeature.COMPONENT_INVENTORY,
             EnvironmentFeature.OPERATION_PLANNING,
+            EnvironmentFeature.MODEL_ROOT_MANAGEMENT,
         ]
         if restart_support.supported:
             supported_features.append(EnvironmentFeature.RESTART)
@@ -59,6 +60,7 @@ class EnvironmentService:
             restart_supported=restart_support.supported,
             package_mutation_supported=False,
             operation_planning_supported=True,
+            model_root_management_supported=True,
             restart_unavailable_reason=restart_support.unavailable_reason,
         )
 

@@ -32,6 +32,9 @@ from substitute_backend.features.environment_management.application.inventory_se
 from substitute_backend.features.environment_management.application.job_service import (
     JobService,
 )
+from substitute_backend.features.environment_management.application.model_root_service import (
+    ModelRootService,
+)
 from substitute_backend.features.environment_management.application.restart_service import (
     RestartService,
 )
@@ -47,3 +50,4 @@ class EnvironmentManagementServices:
     maintenance_plan: MaintenancePlanService
     operation_planning: OperationPlanningService
     restart: RestartService
+    model_root: ModelRootService
