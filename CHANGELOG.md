@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.7.0...v1.7.1) (2026-07-19)
+
+
+### Bug Fixes
+
+* **model-metadata:** target configured model refreshes ([b139183](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/b139183952a601374024af04843ae8dbeeeb3e18))
+
 # [1.7.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.6.2...v1.7.0) (2026-07-16)
 
 
