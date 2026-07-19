@@ -459,7 +459,13 @@ def test_node_model_dependency_scanner_records_folder_path_usage() -> None:
     folder_paths = type(
         "FolderPaths",
         (),
-        {"get_filename_list": lambda self, kind: ["choice"]},
+        {
+            "folder_names_and_paths": {
+                "checkpoints": object(),
+                "loras": object(),
+            },
+            "get_filename_list": lambda self, kind: ["choice"],
+        },
     )()
     original = folder_paths.get_filename_list
     scanner = ComfyNodeModelDependencyScanner(

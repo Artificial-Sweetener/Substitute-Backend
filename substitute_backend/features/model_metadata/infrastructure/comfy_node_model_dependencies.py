@@ -34,6 +34,8 @@ class NodesModule(Protocol):
 class FolderPathsModule(Protocol):
     """Subset of Comfy's ``folder_paths`` module needed for dependency discovery."""
 
+    folder_names_and_paths: Mapping[str, object]
+
     def get_filename_list(self, folder_name: str) -> list[str]:
         """Return filenames for one Comfy model folder kind."""
 
@@ -60,6 +62,7 @@ class ComfyNodeModelDependencyScanner:
         nodes_module = self._nodes_module or self._load_nodes_module()
         folder_paths = self._folder_paths or self._load_folder_paths()
         original = folder_paths.get_filename_list
+        configured_kinds = frozenset(folder_paths.folder_names_and_paths)
         dependencies: defaultdict[str, set[str]] = defaultdict(set)
         current_node_class = {"value": ""}
 
@@ -67,8 +70,9 @@ class ComfyNodeModelDependencyScanner:
             """Record folder kind usage and delegate to Comfy."""
 
             node_class = current_node_class["value"]
-            if node_class and folder_name.strip():
-                dependencies[folder_name.strip()].add(node_class)
+            normalized_kind = folder_name.strip()
+            if node_class and normalized_kind in configured_kinds:
+                dependencies[normalized_kind].add(node_class)
             try:
                 return original(folder_name)
             except Exception:
