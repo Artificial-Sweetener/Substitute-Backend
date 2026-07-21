@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.7.1...v1.8.0) (2026-07-21)
+
+
+### Features
+
+* **sugarcubes:** consume versioned host API ([31e403b](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/31e403b50757aa0fe127c161c73b40609acb996f))
+
 ## [1.7.1](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.7.0...v1.7.1) (2026-07-19)
 
 
