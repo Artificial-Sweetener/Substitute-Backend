@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 import sys
 import types
-from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -34,12 +33,16 @@ from substitute_backend.features.cube_outputs.infrastructure.prompt_server_publi
     PromptServerCubeOutputPublisher,
 )
 from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_observer import (
-    CubeOutputRegistrationStatus,
     SubstituteCubeOutputObserver,
-    SugarCubesCubeOutputRegistration,
+)
+from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_observer_hook import (
     SugarCubesHookResolution,
     SugarCubesHookResolutionStatus,
     SugarCubesObserverHookResolver,
+)
+from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_registration import (
+    CubeOutputRegistrationStatus,
+    SugarCubesCubeOutputRegistration,
 )
 from substitute_backend.features.prompt_queue.application.run_context_store import (
     SubstituteRunContextStore,
@@ -47,6 +50,9 @@ from substitute_backend.features.prompt_queue.application.run_context_store impo
 from substitute_backend.features.prompt_queue.domain.run_context import (
     SubstituteRunContext,
     SubstituteSourceRoute,
+)
+from substitute_backend.infrastructure.sugarcubes_host_api import (
+    SUGARCUBES_HOST_API_MODULE,
 )
 
 
@@ -81,7 +87,7 @@ class _Hook:
     """Collect SugarCubes observer registrations."""
 
     identity = "test-hook"
-    CUBE_OUTPUT_OBSERVER_API_VERSION = 1
+    HOST_API_VERSION = 1
 
     def __init__(self) -> None:
         """Initialize empty observer lists."""
@@ -98,6 +104,11 @@ class _Hook:
         """Collect one observer unregistration."""
 
         self.unregistered.append(observer)
+
+    def active_backend_services(self) -> object:
+        """Return a placeholder graph required by the shared host API."""
+
+        return object()
 
 
 def test_cube_output_event_payload_matches_public_contract() -> None:
@@ -362,85 +373,51 @@ def test_observer_skips_unresolved_cube_output_when_context_required(
     )
 
 
-def test_hook_resolver_reports_unavailable_when_sugarcubes_is_missing(
-    tmp_path: Path,
-) -> None:
-    """Hook resolution should disable publishing when SugarCubes is not installed."""
-
-    extension_root = tmp_path / "Substitute-BackEnd"
-    extension_root.mkdir()
-
-    resolver = SugarCubesObserverHookResolver(
-        extension_root=extension_root,
-        logger=logging.getLogger("test.cube_outputs.resolver"),
-        custom_nodes_root=tmp_path,
-    )
-
-    resolution = resolver.resolve()
-
-    assert resolution.status is SugarCubesHookResolutionStatus.UNAVAILABLE
-    assert resolution.hook is None
-
-
-def test_hook_resolver_does_not_import_sibling_sugarcubes_runtime(
+def test_hook_resolver_reports_pending_before_sugarcubes_is_loaded(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
-    """Hook resolution should wait for Comfy to load SugarCubes' runtime module."""
+    """Hook resolution should remain retryable until SugarCubes publishes its API."""
 
-    extension_root = tmp_path / "Substitute-BackEnd"
-    sugar_root = tmp_path / "SugarCubes"
-    extension_root.mkdir()
-    sugar_root.mkdir()
-    monkeypatch.delitem(sys.modules, "runtime", raising=False)
+    monkeypatch.delitem(sys.modules, SUGARCUBES_HOST_API_MODULE, raising=False)
 
     resolver = SugarCubesObserverHookResolver(
-        extension_root=extension_root,
         logger=logging.getLogger("test.cube_outputs.resolver"),
-        custom_nodes_root=tmp_path,
     )
 
     resolution = resolver.resolve()
 
     assert resolution.status is SugarCubesHookResolutionStatus.PENDING
     assert resolution.hook is None
-    assert "runtime" not in sys.modules
 
 
-def test_hook_resolver_ignores_old_prefixed_sugarcubes_folder(tmp_path: Path) -> None:
-    """Hook resolution should not treat the old prefixed folder as SugarCubes."""
+def test_hook_resolver_does_not_import_sibling_sugarcubes_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hook resolution should wait without importing SugarCubes under another name."""
 
-    extension_root = tmp_path / "Substitute-BackEnd"
-    old_sugar_root = tmp_path / "ComfyUI-SugarCubes"
-    extension_root.mkdir()
-    old_sugar_root.mkdir()
+    monkeypatch.delitem(sys.modules, SUGARCUBES_HOST_API_MODULE, raising=False)
+
     resolver = SugarCubesObserverHookResolver(
-        extension_root=extension_root,
-        logger=logging.getLogger("test.cube_outputs.resolver.old_name"),
-        custom_nodes_root=tmp_path,
+        logger=logging.getLogger("test.cube_outputs.resolver"),
     )
 
     resolution = resolver.resolve()
 
-    assert resolution.status is SugarCubesHookResolutionStatus.UNAVAILABLE
+    assert resolution.status is SugarCubesHookResolutionStatus.PENDING
     assert resolution.hook is None
+    assert SUGARCUBES_HOST_API_MODULE not in sys.modules
 
 
 def test_hook_resolver_reuses_loaded_packaged_sugarcubes_runtime(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
-    """Hook resolution should reuse Comfy's already-loaded SugarCubes runtime module."""
+    """Hook resolution should consume the one API instance SugarCubes published."""
 
-    extension_root = tmp_path / "Substitute-BackEnd"
-    extension_root.mkdir()
     hook = _Hook()
-    monkeypatch.setitem(sys.modules, "custom_nodes.SugarCubes.runtime", hook)
+    monkeypatch.setitem(sys.modules, SUGARCUBES_HOST_API_MODULE, hook)
 
     resolver = SugarCubesObserverHookResolver(
-        extension_root=extension_root,
         logger=logging.getLogger("test.cube_outputs.resolver.loaded"),
-        custom_nodes_root=tmp_path,
     )
 
     resolution = resolver.resolve()

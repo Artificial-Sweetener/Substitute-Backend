@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_observer import (
+from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_registration import (
     SugarCubesCubeOutputRegistration,
 )
 

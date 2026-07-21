@@ -20,8 +20,12 @@ from substitute_backend.features.cube_outputs.infrastructure.prompt_server_publi
 )
 from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_observer import (
     SubstituteCubeOutputObserver,
-    SugarCubesCubeOutputRegistration,
+)
+from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_observer_hook import (
     SugarCubesObserverHookResolver,
+)
+from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_registration import (
+    SugarCubesCubeOutputRegistration,
 )
 
 __all__ = [

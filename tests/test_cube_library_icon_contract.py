@@ -324,6 +324,6 @@ def _adapter(
     return SugarCubesLibraryAdapter(
         extension_root=tmp_path / "Substitute-BackEnd",
         custom_nodes_root=custom_nodes_root,
-        services_factory=lambda _root: SimpleNamespace(library=library),
+        services_loader=lambda: SimpleNamespace(library=library),
         diagnostics=diagnostics,
     )

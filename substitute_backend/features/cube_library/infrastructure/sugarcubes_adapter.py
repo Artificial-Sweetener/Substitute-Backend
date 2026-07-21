@@ -17,16 +17,10 @@
 
 from __future__ import annotations
 
-import importlib
 import logging
-import os
-import sys
-import threading
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from pathlib import Path
-from time import perf_counter
-from typing import Any, cast
+from typing import Any
 
 from substitute_backend.api.errors import BackendHttpError
 from substitute_backend.api.serialization import JsonObject, require_json_object
@@ -34,21 +28,12 @@ from substitute_backend.features.cube_library.application import public_icon_des
 from substitute_backend.features.cube_library.domain import CubeLibraryCapabilities
 from substitute_backend.infrastructure.diagnostics import DiagnosticContext, DiagnosticLogger
 
-SugarCubesServicesFactory = Callable[[Path], Any]
-SUGARCUBES_EXTENSION_DIRECTORY = "SugarCubes"
+from .sugarcubes_library_subscriptions import SugarCubesLibrarySubscriptions
+from .sugarcubes_services import SugarCubesServiceProvider, SugarCubesServicesLoader
+
 SUGARCUBES_STATUS_SOURCE = "sugarcubes"
-_DIAGNOSTICS_ENV_VAR = "SUBSTITUTE_BACKEND_DIAGNOSTICS"
-_CUBE_LIBRARY_DIAGNOSTICS = "cube-library"
-_ALL_DIAGNOSTICS = "all"
+SUGARCUBES_UNAVAILABLE_REASON = "SugarCubes is not available on this target."
 _LOGGER = logging.getLogger(__name__)
-
-
-@dataclass
-class _LibraryChangeSubscription:
-    """Track one deferred SugarCubes library-change subscription."""
-
-    listener: Callable[[Mapping[str, object]], None]
-    unsubscribe: Callable[[], None] | None = None
 
 
 def _error_code_for_status(status: int) -> str:
@@ -75,7 +60,7 @@ class SugarCubesLibraryAdapter:
         *,
         extension_root: Path,
         custom_nodes_root: Path | None = None,
-        services_factory: SugarCubesServicesFactory | None = None,
+        services_loader: SugarCubesServicesLoader | None = None,
         diagnostics: DiagnosticLogger | None = None,
     ) -> None:
         """Create an adapter rooted at the Substitute BackEnd extension."""
@@ -86,12 +71,12 @@ class SugarCubesLibraryAdapter:
             if custom_nodes_root is not None
             else self._extension_root.parent.resolve()
         )
-        self._services_factory = services_factory
         self._diagnostics = diagnostics
-        self._services: Any | None = None
-        self._load_error: str = ""
-        self._library_change_lock = threading.Lock()
-        self._library_change_subscriptions: list[_LibraryChangeSubscription] = []
+        self._library_change_subscriptions = SugarCubesLibrarySubscriptions()
+        self._service_provider = SugarCubesServiceProvider(
+            services_loader=services_loader,
+            on_loaded=self._library_change_subscriptions.activate_pending,
+        )
 
     def status(self) -> JsonObject:
         """Return Cube Library availability without raising for missing SugarCubes."""
@@ -115,16 +100,9 @@ class SugarCubesLibraryAdapter:
 
         status = self._capabilities_status()
         available = bool(status.get("available"))
-        errors = status.get("errors")
-        unavailable_reason = ""
-        if isinstance(errors, list) and errors:
-            first_error = errors[0]
-            if isinstance(first_error, Mapping):
-                message = first_error.get("message")
-                unavailable_reason = message if isinstance(message, str) else ""
         capabilities = CubeLibraryCapabilities(
             available=available,
-            unavailable_reason="" if available else unavailable_reason,
+            unavailable_reason=("" if available else SUGARCUBES_UNAVAILABLE_REASON),
             sugar_cubes_version=_read_text(status.get("sugarCubesVersion")),
             catalog_supported=available and bool(status.get("catalogRevision") is not None),
             artifact_load_supported=available,
@@ -187,13 +165,10 @@ class SugarCubesLibraryAdapter:
     ) -> Callable[[], None] | None:
         """Subscribe to SugarCubes generic library-change events when available."""
 
-        subscription = _LibraryChangeSubscription(listener=listener)
-        with self._library_change_lock:
-            self._library_change_subscriptions.append(subscription)
-            services = self._services
-        if services is not None:
-            self._activate_library_change_subscription(subscription, services)
-        return lambda: self._unsubscribe_library_change_subscription(subscription)
+        return self._library_change_subscriptions.subscribe(
+            listener,
+            loaded_services=self._service_provider.loaded_services,
+        )
 
     def load_cube(
         self,
@@ -469,7 +444,7 @@ class SugarCubesLibraryAdapter:
     def _library(self) -> Any:
         """Return the SugarCubes library service or raise a typed HTTP error."""
 
-        services = self._load_services()
+        services = self._service_provider.services()
         library = getattr(services, "library", None)
         if library is None:
             raise BackendHttpError(
@@ -482,7 +457,7 @@ class SugarCubesLibraryAdapter:
     def _dependencies(self) -> Any:
         """Return the SugarCubes dependency service or raise a typed HTTP error."""
 
-        services = self._load_services()
+        services = self._service_provider.services()
         dependencies = getattr(services, "dependencies", None)
         if dependencies is None:
             raise BackendHttpError(
@@ -491,170 +466,6 @@ class SugarCubesLibraryAdapter:
                 code="sugarcubes-unavailable",
             )
         return dependencies
-
-    def _load_services(self) -> Any:
-        """Import SugarCubes services lazily so backend tests stay isolated."""
-
-        if self._services is not None:
-            return self._services
-        started_at = perf_counter()
-        phase_started_at = started_at
-        phase_timings: dict[str, float] = {}
-
-        def record_phase(name: str) -> None:
-            """Record elapsed milliseconds for one service-load phase."""
-
-            nonlocal phase_started_at
-            now = perf_counter()
-            phase_timings[name] = round((now - phase_started_at) * 1000, 3)
-            phase_started_at = now
-
-        load_path = ""
-        try:
-            if self._services_factory is not None:
-                self._services = self._services_factory(self._sugarcubes_root())
-                self._activate_pending_library_change_subscriptions(self._services)
-                load_path = "factory"
-                record_phase("services_factory")
-            else:
-                sugar_root = self._sugarcubes_root()
-                record_phase("resolve_sugarcubes_root")
-                active_services = _active_backend_services_for_root(sugar_root)
-                record_phase("path_resolved_active_services")
-                if active_services is not None:
-                    _LOGGER.debug("Using path-resolved active SugarCubes backend services")
-                    self._services = active_services
-                    self._activate_pending_library_change_subscriptions(self._services)
-                    load_path = "path_resolved_active"
-                    self._log_load_services_timing(started_at, load_path, phase_timings)
-                    return self._services
-                if str(sugar_root) not in sys.path:
-                    sys.path.insert(0, str(sugar_root))
-                record_phase("ensure_sys_path")
-                backend_module = importlib.import_module("backend")
-                record_phase("import_backend_module")
-                active_services = _active_backend_services(backend_module)
-                record_phase("module_active_services")
-                if active_services is not None:
-                    _LOGGER.debug("Using active SugarCubes backend services")
-                    self._services = active_services
-                    self._activate_pending_library_change_subscriptions(self._services)
-                    load_path = "module_active"
-                else:
-                    _LOGGER.debug("Building fallback SugarCubes backend services")
-                    self._services = backend_module.build_backend_services(sugar_root)
-                    self._activate_pending_library_change_subscriptions(self._services)
-                    load_path = "fallback_build"
-                    record_phase("fallback_build_backend_services")
-        except BackendHttpError:
-            raise
-        except Exception as exc:  # pragma: no cover - host import variance
-            self._load_error = str(exc)
-            raise BackendHttpError(
-                message="SugarCubes is not available on this target.",
-                status=503,
-                code="sugarcubes-unavailable",
-            ) from exc
-        self._log_load_services_timing(started_at, load_path, phase_timings)
-        return self._services
-
-    def _activate_pending_library_change_subscriptions(self, services: object) -> None:
-        """Attach deferred library-change listeners after service discovery succeeds."""
-
-        with self._library_change_lock:
-            subscriptions = [
-                subscription
-                for subscription in self._library_change_subscriptions
-                if subscription.unsubscribe is None
-            ]
-        for subscription in subscriptions:
-            self._activate_library_change_subscription(subscription, services)
-
-    def _activate_library_change_subscription(
-        self,
-        subscription: _LibraryChangeSubscription,
-        services: object,
-    ) -> None:
-        """Attach one pending listener to SugarCubes if the service supports it."""
-
-        with self._library_change_lock:
-            if subscription.unsubscribe is not None:
-                return
-            if not any(
-                active_subscription is subscription
-                for active_subscription in self._library_change_subscriptions
-            ):
-                return
-        library = getattr(services, "library", None)
-        subscribe = getattr(library, "subscribe_library_changed", None)
-        if not callable(subscribe):
-            return
-        unsubscribe = subscribe(subscription.listener)
-        if not callable(unsubscribe):
-            return
-        unsubscribe_callback = cast("Callable[[], None]", unsubscribe)
-        with self._library_change_lock:
-            if not any(
-                active_subscription is subscription
-                for active_subscription in self._library_change_subscriptions
-            ):
-                unsubscribe_callback()
-                return
-            if subscription.unsubscribe is not None:
-                unsubscribe_callback()
-                return
-            subscription.unsubscribe = unsubscribe_callback
-
-    def _unsubscribe_library_change_subscription(
-        self,
-        subscription: _LibraryChangeSubscription,
-    ) -> None:
-        """Remove one pending or active library-change subscription."""
-
-        with self._library_change_lock:
-            self._library_change_subscriptions = [
-                active_subscription
-                for active_subscription in self._library_change_subscriptions
-                if active_subscription is not subscription
-            ]
-            unsubscribe = subscription.unsubscribe
-            subscription.unsubscribe = None
-        if unsubscribe is not None:
-            unsubscribe()
-
-    def _log_load_services_timing(
-        self,
-        started_at: float,
-        load_path: str,
-        phase_timings: Mapping[str, float],
-    ) -> None:
-        """Emit opt-in timing for SugarCubes service discovery."""
-
-        if not _substitute_diagnostics_enabled(_CUBE_LIBRARY_DIAGNOSTICS):
-            return
-        fields = " ".join(f"{key}={value}" for key, value in sorted(phase_timings.items()))
-        _LOGGER.info(
-            "Substitute cube-library diagnostic "
-            "event=substitute_sugarcubes_load_services_timing "
-            "load_path=%s total_duration_ms=%s %s",
-            load_path or "unknown",
-            round((perf_counter() - started_at) * 1000, 3),
-            fields,
-        )
-
-    def _sugarcubes_root(self) -> Path:
-        """Locate the sibling SugarCubes extension root."""
-
-        for candidate in self._custom_nodes_root.iterdir():
-            if not candidate.is_dir():
-                continue
-            if candidate.name.lower() == SUGARCUBES_EXTENSION_DIRECTORY.lower():
-                return candidate.resolve()
-        raise BackendHttpError(
-            message="SugarCubes is not available on this target.",
-            status=503,
-            code="sugarcubes-unavailable",
-        )
 
     def _payload(self, value: object) -> JsonObject:
         """Validate gateway responses before they leave infrastructure."""
@@ -704,121 +515,7 @@ def _rewrite_catalog_icon_descriptors(payload: JsonObject) -> None:
             cube.pop("icon", None)
 
 
-def _active_backend_services(backend_module: Any) -> Any | None:
-    """Return SugarCubes' active service graph when the host exposes it."""
-
-    active_services = getattr(backend_module, "active_backend_services", None)
-    if not callable(active_services):
-        return None
-    services = active_services()
-    return services if services is not None else None
-
-
-def _active_backend_services_for_root(sugar_root: Path) -> Any | None:
-    """Return active SugarCubes services from ComfyUI's path-named import."""
-
-    started_at = perf_counter()
-    path_scan_count = 0
-    service_scan_count = 0
-    backend_init = sugar_root / "backend" / "__init__.py"
-    expected_backend_init = _normalized_filesystem_path(backend_init)
-    for module in tuple(sys.modules.values()):
-        path_scan_count += 1
-        if not _module_file_matches(module, expected_backend_init):
-            continue
-        services = _active_backend_services(module)
-        if services is not None:
-            _log_active_service_scan_timing(
-                started_at,
-                path_scan_count=path_scan_count,
-                service_scan_count=service_scan_count,
-                matched_by="module_file",
-            )
-            return services
-    for module in tuple(sys.modules.values()):
-        service_scan_count += 1
-        services = _active_backend_services(module)
-        if services is not None and _services_match_sugar_root(services, sugar_root):
-            _log_active_service_scan_timing(
-                started_at,
-                path_scan_count=path_scan_count,
-                service_scan_count=service_scan_count,
-                matched_by="service_root",
-            )
-            return services
-    _log_active_service_scan_timing(
-        started_at,
-        path_scan_count=path_scan_count,
-        service_scan_count=service_scan_count,
-        matched_by="none",
-    )
-    return None
-
-
-def _services_match_sugar_root(services: Any, sugar_root: Path) -> bool:
-    """Return whether a SugarCubes service graph belongs to one extension root."""
-
-    library = getattr(services, "library", None)
-    extension_root = getattr(library, "extension_root", None)
-    if not isinstance(extension_root, Path):
-        return False
-    try:
-        return extension_root.resolve() == sugar_root.resolve()
-    except OSError:
-        return False
-
-
-def _module_file_matches(module: object, expected_path: str) -> bool:
-    """Return whether a loaded module was imported from the expected file."""
-
-    module_file = getattr(module, "__file__", None)
-    if not isinstance(module_file, str):
-        return False
-    if not module_file.endswith(("backend\\__init__.py", "backend/__init__.py")):
-        return False
-    return _normalized_filesystem_path(module_file) == expected_path
-
-
-def _normalized_filesystem_path(path: str | Path) -> str:
-    """Return a cheap normalized filesystem path for module-file comparisons."""
-
-    return os.path.normcase(os.path.abspath(os.fspath(path)))
-
-
 def _read_text(value: object) -> str:
     """Read one stripped string value."""
 
     return value.strip() if isinstance(value, str) else ""
-
-
-def _log_active_service_scan_timing(
-    started_at: float,
-    *,
-    path_scan_count: int,
-    service_scan_count: int,
-    matched_by: str,
-) -> None:
-    """Emit opt-in timing for active SugarCubes service scans."""
-
-    if not _substitute_diagnostics_enabled(_CUBE_LIBRARY_DIAGNOSTICS):
-        return
-    _LOGGER.info(
-        "Substitute cube-library diagnostic "
-        "event=substitute_sugarcubes_active_service_scan_timing "
-        "matched_by=%s path_scan_count=%s service_scan_count=%s total_duration_ms=%s",
-        matched_by,
-        path_scan_count,
-        service_scan_count,
-        round((perf_counter() - started_at) * 1000, 3),
-    )
-
-
-def _substitute_diagnostics_enabled(*features: str) -> bool:
-    """Return whether any requested Substitute diagnostics feature is enabled."""
-
-    enabled = {
-        value.strip().casefold()
-        for value in os.environ.get(_DIAGNOSTICS_ENV_VAR, "").split(",")
-        if value.strip()
-    }
-    return _ALL_DIAGNOSTICS in enabled or any(feature.casefold() in enabled for feature in features)

@@ -35,11 +35,17 @@ from substitute_backend.features.cube_library.infrastructure import (
     SugarCubesLibraryAdapter,
 )
 from substitute_backend.features.cube_outputs.application import CubeOutputServices
-from substitute_backend.features.cube_outputs.infrastructure import (
+from substitute_backend.features.cube_outputs.infrastructure.prompt_server_publisher import (
     PromptServerCubeOutputPublisher,
+)
+from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_observer import (
     SubstituteCubeOutputObserver,
-    SugarCubesCubeOutputRegistration,
+)
+from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_observer_hook import (
     SugarCubesObserverHookResolver,
+)
+from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_registration import (
+    SugarCubesCubeOutputRegistration,
 )
 from substitute_backend.features.downloads.application import DownloadServices
 from substitute_backend.features.downloads.application.telemetry_service import (
@@ -508,7 +514,6 @@ def build_cube_output_services(
         run_context_store=run_context_store,
     )
     hook_resolver = SugarCubesObserverHookResolver(
-        extension_root=extension_root,
         logger=get_logger("cube_outputs.sugarcubes"),
     )
     return CubeOutputServices(
