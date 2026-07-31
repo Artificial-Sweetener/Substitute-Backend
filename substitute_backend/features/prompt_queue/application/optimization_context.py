@@ -39,9 +39,9 @@ type FrozenJson = (
     | int
     | float
     | bool
-    | None
     | tuple["FrozenJson", ...]
     | tuple[tuple[str, "FrozenJson"], ...]
+    | None
 )
 type NodeSignature = tuple[object, ...]
 type OutputAddress = tuple[str, int]
