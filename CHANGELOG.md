@@ -1,3 +1,16 @@
+# [1.9.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.8.0...v1.9.0) (2026-07-31)
+
+
+### Bug Fixes
+
+* **ci:** lazy-load Comfy decoder dependencies ([bad6f2b](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/bad6f2bd309cf6b72c80d83dd5ef3fbc68f7cd88))
+* **ci:** satisfy current Ruff union ordering ([a021b6e](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/a021b6e92d7f7f3cebb85a4d88983535ce73973a))
+
+
+### Features
+
+* **local-assets:** authorize version-adaptive local sources ([70abc23](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/70abc23cf3f67f4487f9af9019daeaa917720b9f))
+
 # [1.8.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.7.1...v1.8.0) (2026-07-21)
 
 
