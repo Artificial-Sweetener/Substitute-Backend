@@ -129,6 +129,7 @@ def test_register_routes_uses_expected_surface(tmp_path: Path) -> None:
         ("GET", "/substitute/v1/capabilities"),
         ("POST", "/substitute/v1/prompt/queue"),
         ("POST", "/substitute/v1/sugar/compile"),
+        ("POST", "/substitute/v1/local-assets/authorize"),
         ("GET", "/substitute/v1/models"),
         ("GET", "/substitute/v1/models/changes"),
         ("GET", "/substitute/v1/models/by-hash/{sha256}"),
@@ -246,6 +247,7 @@ def test_capabilities_payload_advertises_preview_assets(
         assert "cube-library" in payload["features"]
         assert "prompt-queue-facade" in payload["features"]
         assert "sugar-compile" in payload["features"]
+        assert "local-assets" in payload["features"]
         assert payload["cubeLibrary"] == {
             "schemaVersion": 1,
             "available": False,

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -95,6 +95,10 @@ from substitute_backend.features.environment_management.infrastructure.python_en
 )
 from substitute_backend.features.environment_management.infrastructure.restart_coordinator import (
     RestartCoordinator,
+)
+from substitute_backend.features.local_assets import (
+    LocalAssetAuthorizationService,
+    build_local_asset_node_mappings,
 )
 from substitute_backend.features.model_loading.application.services import (
     ModelLoadingServices,
@@ -230,6 +234,7 @@ class BackendServices:
     cube_library: CubeLibraryServices
     cube_library_change_monitor: CubeLibraryChangeMonitor
     environment: EnvironmentManagementServices
+    local_assets: LocalAssetAuthorizationService
     model_loading: ModelLoadingServices
     downloads: DownloadServices
     preview_assets: PreviewAssetServices
@@ -628,6 +633,8 @@ def build_backend_services(
     record_phase("cube_library_change_monitor")
     environment = build_environment_management_services(extension_root)
     record_phase("environment")
+    local_assets = LocalAssetAuthorizationService()
+    record_phase("local_assets")
     model_loading = build_model_loading_services(prompt_server=prompt_server)
     record_phase("model_loading")
     downloads = build_download_services(prompt_server=prompt_server)
@@ -664,6 +671,7 @@ def build_backend_services(
         cube_library=cube_library,
         cube_library_change_monitor=cube_library_change_monitor,
         environment=environment,
+        local_assets=local_assets,
         model_loading=model_loading,
         downloads=downloads,
         preview_assets=resolved_preview_assets,
@@ -678,6 +686,8 @@ def build_backend_services(
 def register_extension(
     prompt_server: PromptServerLike | PromptServerClassLike,
     extension_root: Path,
+    *,
+    node_class_mappings: MutableMapping[str, type[object]] | None = None,
 ) -> BackendRouteHandlers:
     """Build services and register Substitute BackEnd routes."""
 
@@ -697,6 +707,9 @@ def register_extension(
     record_phase("resolve_prompt_server")
     services = build_backend_services(extension_root, prompt_server=prompt_server_instance)
     record_phase("build_backend_services")
+    if node_class_mappings is not None:
+        node_class_mappings.update(build_local_asset_node_mappings(services.local_assets))
+    record_phase("register_local_asset_nodes")
     services.model_loading.patch_installer.install()
     record_phase("install_model_loading_patch")
     services.model_loading.log_observer.install()

@@ -35,7 +35,11 @@ def _register_with_comfy(extension_root: Path) -> None:
 
     from substitute_backend.host.extension import register_extension
 
-    register_extension(PromptServer, extension_root)
+    register_extension(
+        PromptServer,
+        extension_root,
+        node_class_mappings=NODE_CLASS_MAPPINGS,
+    )
 
 
 try:  # pragma: no cover - ComfyUI host module is unavailable in unit tests.

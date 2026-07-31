@@ -44,6 +44,12 @@ from substitute_backend.features.environment_management.api.routes import (
 from substitute_backend.features.environment_management.application.services import (
     EnvironmentManagementServices,
 )
+from substitute_backend.features.local_assets import (
+    LocalAssetAuthorizationService,
+    LocalAssetRouteHandlers,
+    build_local_asset_route_handlers,
+)
+from substitute_backend.features.local_assets.api import LOCAL_ASSET_AUTHORIZE_ROUTE
 from substitute_backend.features.model_loading.application.services import (
     ModelLoadingServices,
 )
@@ -127,6 +133,10 @@ class BackendServicesLike(Protocol):
         """Return environment management services."""
 
     @property
+    def local_assets(self) -> LocalAssetAuthorizationService:
+        """Return local asset authorization services."""
+
+    @property
     def model_loading(self) -> ModelLoadingServices:
         """Return model-loading telemetry services."""
 
@@ -162,6 +172,7 @@ class BackendRouteHandlers:
     model_metadata: ModelMetadataRouteHandlers
     cube_library: CubeLibraryRouteHandlers
     environment: EnvironmentRouteHandlers
+    local_assets: LocalAssetRouteHandlers
     preview_assets: PreviewAssetRouteHandlers
     prompt_queue: PromptQueueRouteHandlers
     sugar_compile: SugarCompileRouteHandlers
@@ -181,6 +192,7 @@ def register_routes(
         services.environment,
         logger=get_logger("environment.routes"),
     )
+    local_asset_handlers = build_local_asset_route_handlers(services.local_assets)
     cube_library_handlers = build_cube_library_route_handlers(
         services.cube_library,
         logger=get_logger("cube_library.routes"),
@@ -202,6 +214,7 @@ def register_routes(
     routes.get("/substitute/v1/capabilities")(_build_capabilities_handler(services))
     routes.post("/substitute/v1/prompt/queue")(prompt_queue_handlers.queue_prompt)
     routes.post(SUGAR_COMPILE_ROUTE)(sugar_compile_handlers.compile_sugar)
+    routes.post(LOCAL_ASSET_AUTHORIZE_ROUTE)(local_asset_handlers.authorize)
     routes.get("/substitute/v1/models")(model_handlers.list_models)
     routes.get("/substitute/v1/models/changes")(model_handlers.latest_model_changes)
     routes.get("/substitute/v1/models/by-hash/{sha256}")(model_handlers.lookup_model_by_hash)
@@ -276,6 +289,7 @@ def register_routes(
         model_metadata=model_handlers,
         cube_library=cube_library_handlers,
         environment=environment_handlers,
+        local_assets=local_asset_handlers,
         preview_assets=preview_asset_handlers,
         prompt_queue=prompt_queue_handlers,
         sugar_compile=sugar_compile_handlers,
@@ -334,6 +348,8 @@ def _build_capabilities_handler(
                 feature_list.append("prompt-queue-facade")
             if "visual-routing" not in feature_list:
                 feature_list.append("visual-routing")
+            if "local-assets" not in feature_list:
+                feature_list.append("local-assets")
             sugar_compile_capabilities = services.sugar_compile.compile.capabilities()
             record_phase("sugar_compile_capabilities")
             if sugar_compile_capabilities.available and "sugar-compile" not in feature_list:
