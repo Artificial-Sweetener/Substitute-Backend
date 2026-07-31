@@ -70,17 +70,19 @@ class LocalImageDecoder:
     def load(self, source_path: Path) -> tuple[object, object]:
         """Return IMAGE and inverted-alpha MASK tensors for one local file."""
 
-        import numpy
-        import torch
-        from PIL import Image, ImageOps, ImageSequence
+        numpy = cast(Any, importlib.import_module("numpy"))
+        torch = cast(Any, importlib.import_module("torch"))
+        image_module = cast(Any, importlib.import_module("PIL.Image"))
+        image_ops_module = cast(Any, importlib.import_module("PIL.ImageOps"))
+        image_sequence_module = cast(Any, importlib.import_module("PIL.ImageSequence"))
 
         placement = resolve_tensor_placement(torch)
-        with Image.open(source_path) as opened_image:
+        with image_module.open(source_path) as opened_image:
             output_images: list[Any] = []
             output_masks: list[Any] = []
             expected_size: tuple[int, int] | None = None
-            for frame in ImageSequence.Iterator(opened_image):
-                transposed = ImageOps.exif_transpose(frame)
+            for frame in image_sequence_module.Iterator(opened_image):
+                transposed = image_ops_module.exif_transpose(frame)
                 if transposed.mode == "I":
                     transposed = transposed.point(lambda value: value * (1 / 255))
                 image = transposed.convert("RGB")
