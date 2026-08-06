@@ -15,7 +15,7 @@ classifiers = [
 dependencies = [
     "aiohttp",
     "requests",
-    "sugar-dsl>=1.1.3",
+    "sugar-dsl==1.2.0",
 ]
 
 [project.optional-dependencies]
