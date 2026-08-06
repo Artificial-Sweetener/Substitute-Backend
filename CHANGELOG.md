@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.9.0...v1.9.1) (2026-08-06)
+
+
+### Bug Fixes
+
+* **deps:** pin sugar-dsl 1.2.0 ([4ccf8f1](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/4ccf8f17427203314e37d1a05a94270c2898ec00))
+
 # [1.9.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.8.0...v1.9.0) (2026-07-31)
 
 
