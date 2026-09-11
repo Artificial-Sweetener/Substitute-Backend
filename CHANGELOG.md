@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.9.1...v1.10.0) (2026-09-11)
+
+
+### Features
+
+* **sugarcubes:** persist native queue context ([c5b20bd](https://github.com/Artificial-Sweetener/Substitute-Backend/commit/c5b20bd4474a262ea2d2f3ab5e5e5f51bf935f26))
+
 ## [1.9.1](https://github.com/Artificial-Sweetener/Substitute-Backend/compare/v1.9.0...v1.9.1) (2026-08-06)
 
 
