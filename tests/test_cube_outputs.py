@@ -88,6 +88,7 @@ class _Hook:
 
     identity = "test-hook"
     HOST_API_VERSION = 1
+    QUEUE_OBSERVER_API_VERSION = 1
 
     def __init__(self) -> None:
         """Initialize empty observer lists."""
@@ -109,6 +110,21 @@ class _Hook:
         """Return a placeholder graph required by the shared host API."""
 
         return object()
+
+    def register_validated_queue_observer(
+        self,
+        observer: object,
+        *,
+        required: bool = False,
+    ) -> None:
+        """Accept the companion queue-observer API required by the shared contract."""
+
+        _ = (observer, required)
+
+    def unregister_validated_queue_observer(self, observer: object) -> None:
+        """Accept queue-observer removal required by the shared contract."""
+
+        _ = observer
 
 
 def test_cube_output_event_payload_matches_public_contract() -> None:
@@ -288,6 +304,7 @@ def test_observer_enriches_cube_output_with_substitute_context() -> None:
         context=SubstituteRunContext(
             workflow_id="wf-1",
             generation_run_id="run-1",
+            output_session_id="generate-click-1",
             client_id="client-run",
             scene_key="scene-a",
             sources={
@@ -329,6 +346,7 @@ def test_observer_enriches_cube_output_with_substitute_context() -> None:
         "schemaVersion": 1,
         "workflowId": "wf-1",
         "generationRunId": "run-1",
+        "outputSessionId": "generate-click-1",
         "clientId": "client-run",
         "sourceKey": "wf-1:node-1",
         "sourceLabel": "Demo",

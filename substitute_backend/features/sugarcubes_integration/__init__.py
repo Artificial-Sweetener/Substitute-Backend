@@ -13,19 +13,13 @@
 #
 #    You should have received a copy of the GNU Affero General Public License
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-"""Service container for cube-output websocket publishing."""
+"""Expose cohesive SugarCubes liaison construction and lifecycle services."""
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-
-from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_registration import (
-    SugarCubesCubeOutputRegistration,
+from substitute_backend.features.sugarcubes_integration.composition import (
+    build_sugarcubes_integration,
+)
+from substitute_backend.features.sugarcubes_integration.services import (
+    SugarCubesIntegrationServices,
 )
 
-
-@dataclass(frozen=True)
-class CubeOutputServices:
-    """Own cube-output observer registration services."""
-
-    registration: SugarCubesCubeOutputRegistration
+__all__ = ["SugarCubesIntegrationServices", "build_sugarcubes_integration"]

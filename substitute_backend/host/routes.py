@@ -35,7 +35,6 @@ from substitute_backend.features.cube_library.api.routes import (
 from substitute_backend.features.cube_library.application.services import (
     CubeLibraryServices,
 )
-from substitute_backend.features.cube_outputs.application import CubeOutputServices
 from substitute_backend.features.downloads.application import DownloadServices
 from substitute_backend.features.environment_management.api.routes import (
     EnvironmentRouteHandlers,
@@ -72,12 +71,9 @@ from substitute_backend.features.prompt_queue.api.routes import (
     build_prompt_queue_route_handlers,
 )
 from substitute_backend.features.prompt_queue.application.services import PromptQueueServices
-from substitute_backend.features.sugar_compile.api.routes import (
-    SugarCompileRouteHandlers,
-    build_sugar_compile_route_handlers,
+from substitute_backend.features.sugarcubes_integration import (
+    SugarCubesIntegrationServices,
 )
-from substitute_backend.features.sugar_compile.application import SugarCompileServices
-from substitute_backend.features.sugar_compile.domain import SUGAR_COMPILE_ROUTE
 from substitute_backend.infrastructure.diagnostics import DiagnosticLogger
 from substitute_backend.infrastructure.logging import get_logger
 
@@ -149,16 +145,12 @@ class BackendServicesLike(Protocol):
         """Return preview asset preparation services."""
 
     @property
-    def cube_outputs(self) -> CubeOutputServices:
-        """Return cube-output publishing services."""
+    def sugarcubes_integration(self) -> SugarCubesIntegrationServices:
+        """Return SugarCubes liaison services."""
 
     @property
     def prompt_queue(self) -> PromptQueueServices:
         """Return prompt queue facade services."""
-
-    @property
-    def sugar_compile(self) -> SugarCompileServices:
-        """Return Sugar compile services."""
 
     @property
     def diagnostics(self) -> DiagnosticLogger:
@@ -175,7 +167,6 @@ class BackendRouteHandlers:
     local_assets: LocalAssetRouteHandlers
     preview_assets: PreviewAssetRouteHandlers
     prompt_queue: PromptQueueRouteHandlers
-    sugar_compile: SugarCompileRouteHandlers
 
 
 def register_routes(
@@ -206,14 +197,9 @@ def register_routes(
         services.prompt_queue,
         logger=get_logger("prompt_queue.routes"),
     )
-    sugar_compile_handlers = build_sugar_compile_route_handlers(
-        services.sugar_compile,
-        logger=get_logger("sugar_compile.routes"),
-    )
     routes = _resolve_routes(prompt_server)
     routes.get("/substitute/v1/capabilities")(_build_capabilities_handler(services))
     routes.post("/substitute/v1/prompt/queue")(prompt_queue_handlers.queue_prompt)
-    routes.post(SUGAR_COMPILE_ROUTE)(sugar_compile_handlers.compile_sugar)
     routes.post(LOCAL_ASSET_AUTHORIZE_ROUTE)(local_asset_handlers.authorize)
     routes.get("/substitute/v1/models")(model_handlers.list_models)
     routes.get("/substitute/v1/models/changes")(model_handlers.latest_model_changes)
@@ -292,7 +278,6 @@ def register_routes(
         local_assets=local_asset_handlers,
         preview_assets=preview_asset_handlers,
         prompt_queue=prompt_queue_handlers,
-        sugar_compile=sugar_compile_handlers,
     )
 
 
@@ -321,7 +306,7 @@ def _build_capabilities_handler(
 
         try:
             try:
-                services.cube_outputs.registration.register()
+                services.sugarcubes_integration.register()
             except Exception as exc:
                 logger.warning(
                     "cube-output registration failed during capability probe",
@@ -348,12 +333,10 @@ def _build_capabilities_handler(
                 feature_list.append("prompt-queue-facade")
             if "visual-routing" not in feature_list:
                 feature_list.append("visual-routing")
+            if "native-cube-queue-context" not in feature_list:
+                feature_list.append("native-cube-queue-context")
             if "local-assets" not in feature_list:
                 feature_list.append("local-assets")
-            sugar_compile_capabilities = services.sugar_compile.compile.capabilities()
-            record_phase("sugar_compile_capabilities")
-            if sugar_compile_capabilities.available and "sugar-compile" not in feature_list:
-                feature_list.append("sugar-compile")
             feature_payload: list[JsonValue] = list(feature_list)
             payload["features"] = feature_payload
             payload["cubeLibrary"] = services.cube_library.library.capabilities()
@@ -394,7 +377,13 @@ def _build_capabilities_handler(
                 "eventType": "substitute_cube_output",
                 "previewMetadataKey": "substitute",
             }
-            payload["sugarCompile"] = sugar_compile_capabilities.to_payload()
+            payload["nativeCubeQueueContext"] = {
+                "schemaVersion": 1,
+                "queueObserverApiVersion": 1,
+                "requiredObserver": True,
+                "preQueuePersistence": True,
+                "sourceIdentityFromExecutionReport": True,
+            }
             record_phase("static_payloads")
             _log_capabilities_timing(
                 logger,

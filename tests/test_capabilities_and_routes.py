@@ -30,7 +30,6 @@ import pytest
 from aiohttp import web
 
 from substitute_backend.api.serialization import JsonObject
-from substitute_backend.features.cube_outputs.application import CubeOutputServices
 from substitute_backend.features.model_metadata.application.capability_service import (
     CapabilityService,
 )
@@ -41,6 +40,9 @@ from substitute_backend.features.preview_assets.application import (
     DownloadResult,
     PreviewAssetServices,
     TaesdAssetService,
+)
+from substitute_backend.features.sugarcubes_integration import (
+    SugarCubesIntegrationServices,
 )
 from substitute_backend.host.extension import build_backend_services
 from substitute_backend.host.routes import PromptServerLike, register_routes
@@ -128,7 +130,6 @@ def test_register_routes_uses_expected_surface(tmp_path: Path) -> None:
     assert prompt_server.routes.registered == [
         ("GET", "/substitute/v1/capabilities"),
         ("POST", "/substitute/v1/prompt/queue"),
-        ("POST", "/substitute/v1/sugar/compile"),
         ("POST", "/substitute/v1/local-assets/authorize"),
         ("GET", "/substitute/v1/models"),
         ("GET", "/substitute/v1/models/changes"),
@@ -243,10 +244,11 @@ def test_capabilities_payload_advertises_preview_assets(
         assert isinstance(response, web.Response)
         assert response.text is not None
         payload = json.loads(response.text)
+        assert "sugar-compile" not in payload["features"]
+        assert "sugarCompile" not in payload
         assert "preview-assets" in payload["features"]
         assert "cube-library" in payload["features"]
         assert "prompt-queue-facade" in payload["features"]
-        assert "sugar-compile" in payload["features"]
         assert "local-assets" in payload["features"]
         assert payload["cubeLibrary"] == {
             "schemaVersion": 1,
@@ -272,13 +274,6 @@ def test_capabilities_payload_advertises_preview_assets(
             "optimizationSupported": True,
             "optimizationReportSupported": True,
             "debugDumpSupported": False,
-        }
-        assert payload["sugarCompile"] == {
-            "schemaVersion": 1,
-            "available": True,
-            "compileRoute": "/substitute/v1/sugar/compile",
-            "liveNodeDefinitions": True,
-            "sugarDslVersion": "0.8.1",
         }
 
     asyncio.run(run_capabilities())
@@ -306,8 +301,9 @@ def test_capabilities_payload_survives_cube_output_registration_failure(
         )
         services = replace(
             services,
-            cube_outputs=CubeOutputServices(
-                registration=cast(Any, _FailingRegistration()),
+            sugarcubes_integration=SugarCubesIntegrationServices(
+                cube_output_registration=cast(Any, _FailingRegistration()),
+                queue_context_registration=cast(Any, _FailingRegistration()),
             ),
         )
         prompt_server = FakePromptServer()
@@ -324,6 +320,13 @@ def test_capabilities_payload_survives_cube_output_registration_failure(
         payload = json.loads(response.text)
         assert "visual-routing" in payload["features"]
         assert payload["visualRouting"]["eventType"] == "substitute_cube_output"
+        assert payload["nativeCubeQueueContext"] == {
+            "schemaVersion": 1,
+            "queueObserverApiVersion": 1,
+            "requiredObserver": True,
+            "preQueuePersistence": True,
+            "sourceIdentityFromExecutionReport": True,
+        }
 
     asyncio.run(run_capabilities())
 

@@ -48,6 +48,7 @@ class SubstituteRunContext:
     workflow_id: str
     generation_run_id: str
     client_id: str
+    output_session_id: str | None = None
     scene_run_id: str | None = None
     scene_key: str | None = None
     scene_title: str | None = None
@@ -66,6 +67,8 @@ class SubstituteRunContext:
             "sourceKey": source.source_key,
             "sourceLabel": source.source_label,
         }
+        if self.output_session_id is not None:
+            payload["outputSessionId"] = self.output_session_id
         if self.scene_run_id is not None:
             payload["sceneRunId"] = self.scene_run_id
         if self.scene_key is not None:
@@ -110,6 +113,7 @@ def parse_substitute_run_context(value: object) -> SubstituteRunContext | None:
         workflow_id=workflow_id,
         generation_run_id=generation_run_id,
         client_id=client_id,
+        output_session_id=_optional_string(value.get("outputSessionId")),
         scene_run_id=_optional_string(scene_mapping.get("runId")),
         scene_key=_optional_string(scene_mapping.get("key")),
         scene_title=_optional_string(scene_mapping.get("title")),

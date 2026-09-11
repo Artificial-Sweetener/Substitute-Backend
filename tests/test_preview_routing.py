@@ -81,6 +81,7 @@ def test_preview_metadata_enrichment_adds_substitute_identity() -> None:
         context=SubstituteRunContext(
             workflow_id="wf-1",
             generation_run_id="run-1",
+            output_session_id="generate-click-1",
             client_id="client-1",
             sources={
                 "node-1": SubstituteSourceRoute(
@@ -118,6 +119,7 @@ def test_preview_metadata_enrichment_adds_substitute_identity() -> None:
             "schemaVersion": 1,
             "workflowId": "wf-1",
             "generationRunId": "run-1",
+            "outputSessionId": "generate-click-1",
             "clientId": "client-1",
             "sourceKey": "wf-1:node-1",
             "sourceLabel": "Demo",
