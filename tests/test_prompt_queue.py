@@ -494,6 +494,7 @@ def test_comfy_queue_adapter_stores_substitute_run_context_by_prompt_id() -> Non
                         "schemaVersion": 1,
                         "workflowId": "wf-1",
                         "generationRunId": "run-1",
+                        "outputSessionId": "generate-click-1",
                         "clientId": "client-1",
                         "sources": {
                             "5": {
@@ -512,6 +513,7 @@ def test_comfy_queue_adapter_stores_substitute_run_context_by_prompt_id() -> Non
     assert context is not None
     assert context.workflow_id == "wf-1"
     assert context.generation_run_id == "run-1"
+    assert context.output_session_id == "generate-click-1"
     assert context.client_id == "client-1"
     assert context.sources["5"].source_key == "wf-1:5"
 

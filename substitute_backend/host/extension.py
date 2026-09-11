@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
@@ -33,19 +32,6 @@ from substitute_backend.features.cube_library.application import (
 from substitute_backend.features.cube_library.infrastructure import (
     PromptServerCubeLibraryPublisher,
     SugarCubesLibraryAdapter,
-)
-from substitute_backend.features.cube_outputs.application import CubeOutputServices
-from substitute_backend.features.cube_outputs.infrastructure.prompt_server_publisher import (
-    PromptServerCubeOutputPublisher,
-)
-from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_observer import (
-    SubstituteCubeOutputObserver,
-)
-from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_observer_hook import (
-    SugarCubesObserverHookResolver,
-)
-from substitute_backend.features.cube_outputs.infrastructure.sugarcubes_registration import (
-    SugarCubesCubeOutputRegistration,
 )
 from substitute_backend.features.downloads.application import DownloadServices
 from substitute_backend.features.downloads.application.telemetry_service import (
@@ -203,11 +189,10 @@ from substitute_backend.features.prompt_queue.infrastructure.comfy_prompt_queue 
     PromptQueueLike,
     PromptServerRuntimeLike,
 )
-from substitute_backend.features.sugar_compile.application import (
-    SugarCompileService,
-    SugarCompileServices,
+from substitute_backend.features.sugarcubes_integration import (
+    SugarCubesIntegrationServices,
+    build_sugarcubes_integration,
 )
-from substitute_backend.features.sugar_compile.infrastructure import SugarDslWorkflowCompiler
 from substitute_backend.host.routes import (
     BackendRouteHandlers,
     PromptServerClassLike,
@@ -238,10 +223,9 @@ class BackendServices:
     model_loading: ModelLoadingServices
     downloads: DownloadServices
     preview_assets: PreviewAssetServices
-    cube_outputs: CubeOutputServices
+    sugarcubes_integration: SugarCubesIntegrationServices
     prompt_queue: PromptQueueServices
     preview_metadata_enrichment: PreviewMetadataEnrichmentInstaller
-    sugar_compile: SugarCompileServices
     diagnostics: DiagnosticLogger
 
 
@@ -502,34 +486,6 @@ def build_download_services(prompt_server: object | None = None) -> DownloadServ
     )
 
 
-def build_cube_output_services(
-    extension_root: Path,
-    prompt_server: object | None = None,
-    run_context_store: SubstituteRunContextStore | None = None,
-) -> CubeOutputServices:
-    """Build services for SugarCubes cube-output websocket publishing."""
-
-    publisher = PromptServerCubeOutputPublisher(
-        prompt_server=prompt_server or object(),
-        logger=get_logger("cube_outputs.publisher"),
-    )
-    observer = SubstituteCubeOutputObserver(
-        publisher=publisher,
-        logger=get_logger("cube_outputs.observer"),
-        run_context_store=run_context_store,
-    )
-    hook_resolver = SugarCubesObserverHookResolver(
-        logger=get_logger("cube_outputs.sugarcubes"),
-    )
-    return CubeOutputServices(
-        registration=SugarCubesCubeOutputRegistration(
-            hook_resolver=hook_resolver,
-            observer=observer,
-            logger=get_logger("cube_outputs.registration"),
-        )
-    )
-
-
 def build_preview_asset_services() -> PreviewAssetServices:
     """Build application services for backend-managed preview assets."""
 
@@ -576,21 +532,6 @@ def build_prompt_queue_services(
         run_context_store=run_context_store,
     )
     return PromptQueueServices(queue=PromptQueueService(adapter))
-
-
-def build_sugar_compile_services(cube_library: CubeLibraryServices) -> SugarCompileServices:
-    """Build services for backend-owned Sugar-DSL compilation."""
-
-    compiler = SugarDslWorkflowCompiler(
-        cube_library=cube_library.library,
-        logger=get_logger("sugar_compile.compiler"),
-    )
-    return SugarCompileServices(
-        compile=SugarCompileService(
-            compiler=compiler,
-            logger=get_logger("sugar_compile.service"),
-        )
-    )
 
 
 def build_backend_services(
@@ -641,12 +582,11 @@ def build_backend_services(
     record_phase("downloads")
     resolved_preview_assets = preview_assets or build_preview_asset_services()
     record_phase("preview_assets")
-    cube_outputs = build_cube_output_services(
-        extension_root,
-        prompt_server=prompt_server,
+    sugarcubes_integration = build_sugarcubes_integration(
+        prompt_server=prompt_server or object(),
         run_context_store=run_context_store,
     )
-    record_phase("cube_outputs")
+    record_phase("sugarcubes_integration")
     prompt_queue = build_prompt_queue_services(
         extension_root,
         prompt_server=prompt_server,
@@ -659,8 +599,6 @@ def build_backend_services(
         logger=get_logger("preview_routing.metadata"),
     )
     record_phase("preview_metadata_enrichment")
-    sugar_compile = build_sugar_compile_services(cube_library)
-    record_phase("sugar_compile")
     _log_startup_timing(
         "backend_services",
         total_duration_ms=round((perf_counter() - started_at) * 1000, 3),
@@ -675,10 +613,9 @@ def build_backend_services(
         model_loading=model_loading,
         downloads=downloads,
         preview_assets=resolved_preview_assets,
-        cube_outputs=cube_outputs,
+        sugarcubes_integration=sugarcubes_integration,
         prompt_queue=prompt_queue,
         preview_metadata_enrichment=preview_metadata_enrichment,
-        sugar_compile=sugar_compile,
         diagnostics=diagnostics,
     )
 
@@ -718,10 +655,10 @@ def register_extension(
     record_phase("install_download_patch")
     services.preview_metadata_enrichment.install()
     record_phase("install_preview_metadata_enrichment")
-    services.cube_outputs.registration.register()
-    record_phase("register_cube_outputs")
-    _schedule_cube_output_registration_retry(services.cube_outputs.registration)
-    record_phase("schedule_cube_output_retry")
+    services.sugarcubes_integration.register()
+    record_phase("register_sugarcubes_integration")
+    services.sugarcubes_integration.schedule_retry()
+    record_phase("schedule_sugarcubes_integration_retry")
     services.cube_library_change_monitor.start()
     record_phase("start_cube_library_change_monitor")
     services.model_metadata.changes.start()
@@ -776,18 +713,6 @@ def _resolve_prompt_server_instance(
     if instance is not None:
         return instance
     return prompt_server
-
-
-def _schedule_cube_output_registration_retry(
-    registration: SugarCubesCubeOutputRegistration,
-) -> None:
-    """Retry cube-output registration after Comfy finishes the current startup task."""
-
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return
-    loop.call_soon(registration.register)
 
 
 def _catalog_revision_from_status(cube_library: CubeLibraryServices) -> str:

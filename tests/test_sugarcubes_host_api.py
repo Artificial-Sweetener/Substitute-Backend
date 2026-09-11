@@ -43,6 +43,21 @@ def test_resolver_returns_the_canonical_versioned_host_api(
     assert resolution.api is module
 
 
+def test_resolver_requires_the_validated_queue_observer_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Native queue context must fail closed when SugarCubes lacks its observer API."""
+
+    module = _host_api_module(version=1)
+    del module.__dict__["register_validated_queue_observer"]
+    monkeypatch.setitem(sys.modules, SUGARCUBES_HOST_API_MODULE, module)
+
+    resolution = SugarCubesHostApiResolver().resolve()
+
+    assert resolution.status is SugarCubesHostApiResolutionStatus.UNAVAILABLE
+    assert "register_validated_queue_observer" in resolution.message
+
+
 def test_resolver_rejects_an_unsupported_host_api_version(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -77,4 +92,9 @@ def _host_api_module(*, version: int) -> ModuleType:
     module.__dict__["active_backend_services"] = lambda: object()
     module.__dict__["register_cube_output_observer"] = lambda _observer: None
     module.__dict__["unregister_cube_output_observer"] = lambda _observer: None
+    module.__dict__["QUEUE_OBSERVER_API_VERSION"] = 1
+    module.__dict__["register_validated_queue_observer"] = lambda _observer, *, required=False: (
+        required
+    )
+    module.__dict__["unregister_validated_queue_observer"] = lambda _observer: None
     return module

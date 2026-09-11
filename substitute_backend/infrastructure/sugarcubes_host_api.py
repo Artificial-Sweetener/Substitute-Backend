@@ -24,12 +24,14 @@ from typing import Protocol, cast
 
 SUGARCUBES_HOST_API_MODULE = "sugarcubes.host_api"
 SUPPORTED_SUGARCUBES_HOST_API_VERSION = 1
+SUPPORTED_QUEUE_OBSERVER_API_VERSION = 1
 
 
 class SugarCubesHostApi(Protocol):
     """Describe the cross-extension surface owned and published by SugarCubes."""
 
     HOST_API_VERSION: int
+    QUEUE_OBSERVER_API_VERSION: int
 
     def active_backend_services(self) -> object | None:
         """Return the service graph already created by SugarCubes."""
@@ -39,6 +41,17 @@ class SugarCubesHostApi(Protocol):
 
     def unregister_cube_output_observer(self, observer: object) -> None:
         """Unregister one cube-output observer."""
+
+    def register_validated_queue_observer(
+        self,
+        observer: object,
+        *,
+        required: bool = False,
+    ) -> None:
+        """Register one observer of prompts validated for native queueing."""
+
+    def unregister_validated_queue_observer(self, observer: object) -> None:
+        """Unregister one validated-queue observer."""
 
 
 class SugarCubesHostApiResolutionStatus(StrEnum):
@@ -81,6 +94,16 @@ class SugarCubesHostApiResolver:
                     f"{SUPPORTED_SUGARCUBES_HOST_API_VERSION}."
                 ),
             )
+        queue_observer_version = getattr(module, "QUEUE_OBSERVER_API_VERSION", None)
+        if queue_observer_version != SUPPORTED_QUEUE_OBSERVER_API_VERSION:
+            return SugarCubesHostApiResolution(
+                status=SugarCubesHostApiResolutionStatus.UNAVAILABLE,
+                message=(
+                    "SugarCubes queue-observer API version "
+                    f"{queue_observer_version!r} is not supported; expected "
+                    f"{SUPPORTED_QUEUE_OBSERVER_API_VERSION}."
+                ),
+            )
         missing_operation = _missing_operation(module)
         if missing_operation is not None:
             return SugarCubesHostApiResolution(
@@ -101,6 +124,8 @@ def _missing_operation(module: object) -> str | None:
         "active_backend_services",
         "register_cube_output_observer",
         "unregister_cube_output_observer",
+        "register_validated_queue_observer",
+        "unregister_validated_queue_observer",
     ):
         if not callable(getattr(module, name, None)):
             return name

@@ -244,4 +244,9 @@ def _publish_host_api(
     module.__dict__["active_backend_services"] = lambda: services
     module.__dict__["register_cube_output_observer"] = lambda _observer: None
     module.__dict__["unregister_cube_output_observer"] = lambda _observer: None
+    module.__dict__["QUEUE_OBSERVER_API_VERSION"] = 1
+    module.__dict__["register_validated_queue_observer"] = lambda _observer, *, required=False: (
+        required
+    )
+    module.__dict__["unregister_validated_queue_observer"] = lambda _observer: None
     monkeypatch.setitem(sys.modules, SUGARCUBES_HOST_API_MODULE, module)
